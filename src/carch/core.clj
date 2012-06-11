@@ -1,6 +1,8 @@
 (ns carch.core
   (:import [JavaPhotoArchive Archiver]
-           [java.io File]))
+           [java.io File]
+           [com.drew.imaging.jpeg JpegMetadataReader]
+           [com.drew.metadata.exif ExifDirectory]))
 
 (comment (Archiver/main (into-array String [])))
 
@@ -21,12 +23,20 @@
                       (.exists))
                  (roots))))
 
-(defn find-files [directory extension]
+(defn files-in-directory [directory]
   (reduce (fn [files file] (if (.isDirectory file)
-                             (concat files (find-files file extension))
-                             (if (.endsWith (.toLowerCase (.getName file)) (.toLowerCase extension))
-                               (conj files file)
-                               files)))
+                             (concat files (files-in-directory file))
+                             (conj files file)))
           []
           (.listFiles directory)))
+
+(defn files-by-extension [directory extension]
+  (filter #(.endsWith (.toLowerCase (.getName %)) (.toLowerCase extension))
+          (files-in-directory directory)))
+
+(defn photo-date [photo-file]
+  (-> photo-file
+      (JpegMetadataReader/readMetadata)
+      (.getDirectory ExifDirectory)
+      (.getDate ExifDirectory/TAG_DATETIME_DIGITIZED)))
 
