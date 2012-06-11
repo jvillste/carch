@@ -1,8 +1,10 @@
 (ns carch.core
   (:import [JavaPhotoArchive Archiver]
            [java.io File]
+           [java.util Calendar]
            [com.drew.imaging.jpeg JpegMetadataReader]
-           [com.drew.metadata.exif ExifDirectory]))
+           [com.drew.metadata.exif ExifDirectory])
+  (:gen-class))
 
 (comment (Archiver/main (into-array String [])))
 
@@ -40,3 +42,29 @@
       (.getDirectory ExifDirectory)
       (.getDate ExifDirectory/TAG_DATETIME_DIGITIZED)))
 
+(defn extension [file-name]
+  (.substring file-name (+ 1 (.lastIndexOf file-name "."))))
+
+(defn file-type [file]
+  (case (.toLowerCase (extension (.getName file)))
+    "jpg" :jpg
+    "mov" :mov
+    "avi" :avi))
+
+(defn target-path-by-date [date]
+  (let [calendar (Calendar/getInstance)]
+    (.setTime calendar date)
+    (str (.get calendar Calendar/YEAR)
+         "//"
+         (.get calendar Calendar/YEAR)
+         "-"
+         (format "%02d" (+ 1 (.get calendar Calendar/MONTH)))
+         "-"
+         (format "%02d" (.get calendar Calendar/DAY_OF_MONTH)))))
+
+(defn target-path [file]
+  (case (file-type file)
+    :jpg (target-path-by-date (photo-date file))))
+
+(defn -main [& args]
+  (println "foo " (first args)))
