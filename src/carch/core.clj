@@ -108,10 +108,14 @@
                                       (target-path archiver temp-file-name))
             target-file-name (append-paths target-path
                                            (target-file-name archiver md5 temp-file-name))]
-        (println target-path)
-        (.mkdirs (File. target-path))
-        (move-file temp-file-name
-                   target-file-name)))))
+        (if (.exists (File. target-file-name))
+          (do (println "allready exists " target-file-name)
+              (.delete (File. temp-file-name)))
+          
+          (do (.mkdirs (File. target-path))
+              (move-file temp-file-name
+                         target-file-name)))))))
+
 
 ;; PHOTOS
 
@@ -126,6 +130,7 @@
 
 (deftype JPGArchiver []
   Archiver
+
   (accept-source-file [archiver file]
     (= (.toLowerCase (extension (.getName file)))
        "jpg"))
@@ -137,17 +142,32 @@
         (str md5 ".jpg"))))
 
   (target-path [archiver temp-file-name]
-    (-> temp-file-name
-        photo-date
-        target-path-by-date)))
+    (append-paths "photos"
+                  (-> temp-file-name
+                      photo-date
+                      target-path-by-date))))
+
+;; VIDEOS
+
+(deftype VideoArchiver []
+  Archiver
+
+  (accept-source-file [archiver file]
+    (#{"avi" "mov"} (.toLowerCase (extension (.getName file)))))
+
+  (target-file-name [archiver md5 temp-file-name]
+    (str md5 "." (extension temp-file-name)))
+
+  (target-path [archiver temp-file-name]
+    (append-paths "videos" "dateless")))
 
 
 (comment
-  (doseq [archiver [(JPGArchiver.)]
-          file (files-for-archiver (JPGArchiver.) (File. "/home/jukka/Downloads/kuvakoe"))]
+(doseq [archiver [(JPGArchiver.) (VideoArchiver.)]
+          file (files-for-archiver archiver (File. "/home/jukka/Downloads/kuvakoe"))]
     (archive archiver (.getPath file) "/home/jukka/Downloads/kuva-arkisto"))
 
-(archive (JPGArchiver.) "/home/jukka/Downloads/kuvakoe/conspare-side2.jpg" "/home/jukka/Downloads/kuva-arkisto")
+  (archive (JPGArchiver.) "/home/jukka/Downloads/kuvakoe/conspare-side2.jpg" "/home/jukka/Downloads/kuva-arkisto")
 
   (target-path (JPGArchiver.) "/home/jukka/Downloads/kuvakoe/conspare-side2.jpg")
 
