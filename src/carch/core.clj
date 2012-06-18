@@ -4,6 +4,22 @@
            [com.drew.imaging.jpeg JpegMetadataReader]
            [com.drew.metadata.exif ExifDirectory]))
 
+
+(defprotocol Archiver
+  (accept-source-file [archiver file])
+  (target-file-name [archiver md5 temp-file])
+  (target-path [archiver temp-file]))
+
+(defn date-to-map [date]
+  (let [calendar (Calendar/getInstance)]
+    (.setTime calendar date)
+    {:year (.get calendar Calendar/YEAR)
+     :month (+ 1 (.get calendar Calendar/MONTH))
+     :day (.get calendar Calendar/DAY_OF_MONTH)
+     :hour (.get calendar Calendar/HOUR_OF_DAY)
+     :minute (.get calendar Calendar/MINUTE)
+     :second (.get calendar Calendar/SECOND)}))
+
 (defn operating-system []
   (case (System/getProperty "os.name")
     "Linux" :linux
@@ -36,70 +52,39 @@
   (-> photo-file
       (JpegMetadataReader/readMetadata)
       (.getDirectory ExifDirectory)
-      (.getDate ExifDirectory/TAG_DATETIME_DIGITIZED)))
+      (.getDate ExifDirectory/TAG_DATETIME_DIGITIZED)
+      date-to-map))
 
 (defn extension [file-name]
   (.substring file-name (+ 1 (.lastIndexOf file-name "."))))
 
-(defn file-type [file]
-  (case (.toLowerCase (extension (.getName file)))
-    "jpg" :jpg
-    "mov" :mov
-    "avi" :avi))
 
 (defn append-paths [& paths]
   (apply str (interpose File/separator
                         paths)))
 
-(defn date-to-map [date]
-  (let [calendar (Calendar/getInstance)]
-    (.setTime calendar date)
-    {:year (.get calendar Calendar/YEAR)
-     :month (+ 1 (.get calendar Calendar/MONTH))
-     :day (.get calendar Calendar/DAY_OF_MONTH)
-     :hour (.get calendar Calendar/HOUR_OF_DAY)
-     :minute (.get calendar Calendar/MINUTE)
-     :second (.get calendar Calendar/SECOND)}))
-
 (defn target-path-by-date [date]
-  (let [{:keys [year month day]} (date-to-map date)]
-    (str year
-         File/separator
-         year
-         "-"
-         (format "%02d" month)
-         "-"
-         (format "%02d" day))))
+  (if date
+    (let [{:keys [year month day]} date]
+      (str year
+           File/separator
+           year
+           "-"
+           (format "%02d" month)
+           "-"
+           (format "%02d" day)))
+    "dateless"))
 
-(defn file-name-date-string [date]
-  (let [{:keys [year month day hour minute]} (date-to-map date)]
-    (str year
-         "-"
-         (format "%02d" month)
-         "-"
-         (format "%02d" day)
-         "-"
-         (format "%02d" hour)
-         "-"
-         (format "%02d" minute))))
-
-(defn target-path [file]
-  (case (file-type file)
-    :jpg (let [date (photo-date file)]
-           (if date
-             (target-path-by-date date)
-             "dateless"))
-    :mov "videos"
-    :avi  "videos"))
-
-(defn target-file-name [file md5]
-  (case (file-type file)
-    :jpg (let [date (photo-date file)]
-           (if date
-             (str (file-name-date-string date) "-" md5 ".jpg")
-             (str md5 ".jpg")))
-    :mov "videos"
-    :avi "videos"))
+(defn file-name-date-string [{:keys [year month day hour minute]}]
+  (str year
+       "-"
+       (format "%02d" month)
+       "-"
+       (format "%02d" day)
+       "-"
+       (format "%02d" hour)
+       "-"
+       (format "%02d" minute)))
 
 
 (defn bytes-to-hex-string [bytes]
@@ -119,7 +104,9 @@
   (.renameTo (File. source-file-name)
              (File. target-file-name)))
 
-(defn process [source-file-name archive-path]
+
+
+(defn archive [archiver source-file-name archive-path]
   (let [message-digest (java.security.MessageDigest/getInstance "MD5")
         temp-file-name (append-paths archive-path (str "archiver.temp." (extension source-file-name)))]
     (with-open [output-stream (clojure.java.io/output-stream temp-file-name)]
@@ -128,9 +115,27 @@
                       (.update message-digest buffer 0 bytes-read)
                       (.write output-stream buffer 0 bytes-read)))
       (let [md5 (bytes-to-hex-string (.digest message-digest))
+            target-path (target-path archiver (File. temp-file-name))
             target-file-name (append-paths archive-path
-                                           (target-path (File. temp-file-name))
-                                           (target-file-name (File. temp-file-name)))]
-        (.mkdirs (File. (target-path (File. temp-file-name))))
+                                           target-path
+                                           (target-file-name archiver md5 (File. temp-file-name)))]
+        (.mkdirs (File. target-path))
         (move-file temp-file-name
                    target-file-name)))))
+
+
+
+(deftype JPGArchiver []
+  Archiver
+  (accept-source-file [archiver file]
+    (= (.toLowerCase (extension (.getName file)))
+       "jpg"))
+  (target-file-name [archiver md5 temp-file]
+    (let [date (photo-date temp-file)]
+      (if date
+        (str (file-name-date-string date) "-" md5 ".jpg")
+        (str md5 ".jpg"))))
+  (target-path [archiver temp-file]
+    (-> temp-file
+        photo-date
+        target-path-by-date)))
