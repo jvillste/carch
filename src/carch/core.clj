@@ -8,7 +8,7 @@
 (defprotocol Archiver
   (accept-source-file [archiver file])
   (target-file-name [archiver md5 temp-file])
-  (target-path [archiver temp-file]))
+  (target-path [archiver temp-file-name]))
 
 (defn date-to-map [date]
   (let [calendar (Calendar/getInstance)]
@@ -44,16 +44,9 @@
           []
           (.listFiles directory)))
 
-(defn files-by-extension [directory extension]
-  (filter #(.endsWith (.toLowerCase (.getName %)) (.toLowerCase extension))
+(defn files-for-archiver [archiver directory]
+  (filter #(accept-source-file archiver %)
           (files-in-directory directory)))
-
-(defn photo-date [photo-file]
-  (-> photo-file
-      (JpegMetadataReader/readMetadata)
-      (.getDirectory ExifDirectory)
-      (.getDate ExifDirectory/TAG_DATETIME_DIGITIZED)
-      date-to-map))
 
 (defn extension [file-name]
   (.substring file-name (+ 1 (.lastIndexOf file-name "."))))
@@ -86,7 +79,6 @@
        "-"
        (format "%02d" minute)))
 
-
 (defn bytes-to-hex-string [bytes]
   (apply str (map #(format "%02x" %)
                   bytes)))
@@ -99,12 +91,9 @@
           (processor buffer bytes-read)
           (recur (.read input-stream buffer)))))))
 
-
 (defn move-file [source-file-name target-file-name]
   (.renameTo (File. source-file-name)
              (File. target-file-name)))
-
-
 
 (defn archive [archiver source-file-name archive-path]
   (let [message-digest (java.security.MessageDigest/getInstance "MD5")
@@ -115,27 +104,54 @@
                       (.update message-digest buffer 0 bytes-read)
                       (.write output-stream buffer 0 bytes-read)))
       (let [md5 (bytes-to-hex-string (.digest message-digest))
-            target-path (target-path archiver (File. temp-file-name))
-            target-file-name (append-paths archive-path
-                                           target-path
-                                           (target-file-name archiver md5 (File. temp-file-name)))]
+            target-path (append-paths archive-path
+                                      (target-path archiver temp-file-name))
+            target-file-name (append-paths target-path
+                                           (target-file-name archiver md5 temp-file-name))]
+        (println target-path)
         (.mkdirs (File. target-path))
         (move-file temp-file-name
                    target-file-name)))))
 
+;; PHOTOS
 
+(defn photo-date [photo-file-name]
+  (let [directory (-> (File. photo-file-name)
+                      (JpegMetadataReader/readMetadata)
+                      (.getDirectory ExifDirectory)
+                      )]
+    (if (.containsTag directory ExifDirectory/TAG_DATETIME_DIGITIZED)
+      (date-to-map (.getDate ExifDirectory/TAG_DATETIME_DIGITIZED))
+      nil)))
 
 (deftype JPGArchiver []
   Archiver
   (accept-source-file [archiver file]
     (= (.toLowerCase (extension (.getName file)))
        "jpg"))
-  (target-file-name [archiver md5 temp-file]
-    (let [date (photo-date temp-file)]
+
+  (target-file-name [archiver md5 temp-file-name]
+    (let [date (photo-date temp-file-name)]
       (if date
         (str (file-name-date-string date) "-" md5 ".jpg")
         (str md5 ".jpg"))))
-  (target-path [archiver temp-file]
-    (-> temp-file
+
+  (target-path [archiver temp-file-name]
+    (-> temp-file-name
         photo-date
         target-path-by-date)))
+
+
+(comment
+  (doseq [archiver [(JPGArchiver.)]
+          file (files-for-archiver (JPGArchiver.) (File. "/home/jukka/Downloads/kuvakoe"))]
+    (archive archiver (.getPath file) "/home/jukka/Downloads/kuva-arkisto"))
+
+(archive (JPGArchiver.) "/home/jukka/Downloads/kuvakoe/conspare-side2.jpg" "/home/jukka/Downloads/kuva-arkisto")
+
+  (target-path (JPGArchiver.) "/home/jukka/Downloads/kuvakoe/conspare-side2.jpg")
+
+  (println (photo-date "/home/jukka/Downloads/kuvakoe/conspare-side2.jpg"))
+
+  (println (files-for-archiver (JPGArchiver.) (File. "/home/jukka/Downloads")))
+  )
