@@ -1,6 +1,6 @@
 (ns carch.core
   (:import [java.io File]
-           [java.util Calendar]
+           [java.util Calendar Date]
            [com.drew.imaging.jpeg JpegMetadataReader]
            [com.drew.metadata.exif ExifDirectory]))
 
@@ -103,6 +103,8 @@
                     (fn [buffer bytes-read]
                       (.update message-digest buffer 0 bytes-read)
                       (.write output-stream buffer 0 bytes-read)))
+      (.setLastModified (File. temp-file-name)
+                        (.lastModified (File. source-file-name)))
       (let [md5 (bytes-to-hex-string (.digest message-digest))
             target-path (append-paths archive-path
                                       (target-path archiver temp-file-name))
@@ -111,11 +113,16 @@
         (if (.exists (File. target-file-name))
           (do (println "allready exists " target-file-name)
               (.delete (File. temp-file-name)))
-          
+
           (do (.mkdirs (File. target-path))
               (move-file temp-file-name
                          target-file-name)))))))
 
+
+(defn file-name [date md5 extension]
+  (if date
+    (str (file-name-date-string date) "-" md5 "." extension)
+    (str md5 "." extension)))
 
 ;; PHOTOS
 
@@ -128,6 +135,7 @@
       (date-to-map (.getDate ExifDirectory/TAG_DATETIME_DIGITIZED))
       nil)))
 
+
 (deftype JPGArchiver []
   Archiver
 
@@ -136,10 +144,7 @@
        "jpg"))
 
   (target-file-name [archiver md5 temp-file-name]
-    (let [date (photo-date temp-file-name)]
-      (if date
-        (str (file-name-date-string date) "-" md5 ".jpg")
-        (str md5 ".jpg"))))
+    (file-name (photo-date temp-file-name) md5 "jpg"))
 
   (target-path [archiver temp-file-name]
     (append-paths "photos"
@@ -149,6 +154,10 @@
 
 ;; VIDEOS
 
+(defn video-date [video-file-name]
+  (date-to-map (Date. (.lastModified (File. video-file-name)))))
+
+
 (deftype VideoArchiver []
   Archiver
 
@@ -156,10 +165,13 @@
     (#{"avi" "mov"} (.toLowerCase (extension (.getName file)))))
 
   (target-file-name [archiver md5 temp-file-name]
-    (str md5 "." (extension temp-file-name)))
+    (file-name (video-date temp-file-name) md5 (extension temp-file-name)))
 
   (target-path [archiver temp-file-name]
-    (append-paths "videos" "dateless")))
+    (append-paths "videos"
+                  (-> temp-file-name
+                      video-date
+                      target-path-by-date))))
 
 
 (comment
@@ -167,11 +179,13 @@
           file (files-for-archiver archiver (File. "/home/jukka/Downloads/kuvakoe"))]
     (archive archiver (.getPath file) "/home/jukka/Downloads/kuva-arkisto"))
 
-  (archive (JPGArchiver.) "/home/jukka/Downloads/kuvakoe/conspare-side2.jpg" "/home/jukka/Downloads/kuva-arkisto")
+  (archive (VideoArchiver.) "/media/Kingston/DCIM/115___06/MVI_4599.MOV" "/home/jukka/Downloads/kuva-arkisto")
+
+
 
   (target-path (JPGArchiver.) "/home/jukka/Downloads/kuvakoe/conspare-side2.jpg")
 
-  (println (photo-date "/home/jukka/Downloads/kuvakoe/conspare-side2.jpg"))
+(println (photo-date "/home/jukka/Downloads/kuvakoe/conspare-side2.jpg"))
 
   (println (files-for-archiver (JPGArchiver.) (File. "/home/jukka/Downloads")))
   )
