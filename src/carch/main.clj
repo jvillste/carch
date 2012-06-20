@@ -3,4 +3,7 @@
   (:gen-class))
 
 (defn -main [& args]
-  (println "foo2 " (first args)))
+  (.start (Thread. (fn [] (core/start (first args)))))
+  (.start (Thread. core/command-line-ui))
+  (read-line)
+  (reset! core/running false))

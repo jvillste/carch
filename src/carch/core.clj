@@ -4,8 +4,12 @@
            [com.drew.imaging.jpeg JpegMetadataReader]
            [com.drew.metadata.exif ExifDirectory]))
 
+(def file-progress (atom 0))
+(def running (atom true))
+(def log (atom ""))
 
 (defprotocol Archiver
+  (archiver-name [archiver])
   (accept-source-file [archiver file])
   (target-file-name [archiver md5 temp-file])
   (target-path [archiver temp-file-name]))
@@ -68,28 +72,41 @@
            (format "%02d" day)))
     "dateless"))
 
-(defn file-name-date-string [{:keys [year month day hour minute]}]
+(defn file-name-date-string [{:keys [year month day hour minute second]}]
   (str year
        "-"
        (format "%02d" month)
        "-"
        (format "%02d" day)
-       "-"
+       "."
        (format "%02d" hour)
-       "-"
-       (format "%02d" minute)))
+       "."
+       (format "%02d" minute)
+       "."
+       (format "%02d" second)))
+
 
 (defn bytes-to-hex-string [bytes]
   (apply str (map #(format "%02x" %)
                   bytes)))
 
+(defn write-log [& message]
+  (swap! log (fn [old-log] (str old-log "\n" (apply str message)))))
+
 (defn process-file [source-file-name processor]
-  (let [buffer (byte-array 1024)]
+  (let [buffer (byte-array 1024)
+        file-size (.length (File. source-file-name))]
     (with-open [input-stream (clojure.java.io/input-stream source-file-name)]
-      (loop [bytes-read (.read input-stream buffer)]
+      (loop [bytes-read (.read input-stream buffer)
+             total-bytes-read bytes-read]
         (when (> bytes-read 0)
+          (reset! file-progress (int (* 100
+                                        (/ total-bytes-read
+                                           file-size))))
           (processor buffer bytes-read)
-          (recur (.read input-stream buffer)))))))
+          (when @running
+            (recur (.read input-stream buffer)
+                   (+ total-bytes-read bytes-read))))))))
 
 (defn move-file [source-file-name target-file-name]
   (.renameTo (File. source-file-name)
@@ -98,46 +115,52 @@
 (defn archive [archiver source-file-name archive-path]
   (let [message-digest (java.security.MessageDigest/getInstance "MD5")
         temp-file-name (append-paths archive-path (str "archiver.temp." (extension source-file-name)))]
+    (when (.exists (File. temp-file-name))
+      (.delete (File. temp-file-name)))
     (with-open [output-stream (clojure.java.io/output-stream temp-file-name)]
       (process-file source-file-name
                     (fn [buffer bytes-read]
                       (.update message-digest buffer 0 bytes-read)
                       (.write output-stream buffer 0 bytes-read)))
-      (.setLastModified (File. temp-file-name)
-                        (.lastModified (File. source-file-name)))
-      (let [md5 (bytes-to-hex-string (.digest message-digest))
-            target-path (append-paths archive-path
-                                      (target-path archiver temp-file-name))
-            target-file-name (append-paths target-path
-                                           (target-file-name archiver md5 temp-file-name))]
-        (if (.exists (File. target-file-name))
-          (do (println "allready exists " target-file-name)
-              (.delete (File. temp-file-name)))
+      (when @running
+        (do (.setLastModified (File. temp-file-name)
+                              (.lastModified (File. source-file-name)))
+            (let [md5 (bytes-to-hex-string (.digest message-digest))
+                  target-path (append-paths archive-path
+                                            (target-path archiver temp-file-name))
+                  target-file-name (append-paths target-path
+                                                 (target-file-name archiver md5 temp-file-name))]
+              (if (.exists (File. target-file-name))
+                (do (write-log "allready exists " target-file-name)
+                    (.delete (File. temp-file-name)))
 
-          (do (.mkdirs (File. target-path))
-              (move-file temp-file-name
-                         target-file-name)))))))
-
+                (do (.mkdirs (File. target-path))
+                    (move-file temp-file-name
+                               target-file-name))))))
+      (when (.exists (File. temp-file-name))
+        (.delete (File. temp-file-name))))))
 
 (defn file-name [date md5 extension]
-  (if date
-    (str (file-name-date-string date) "-" md5 "." extension)
-    (str md5 "." extension)))
+  (str (if date
+         (str (file-name-date-string date) "_")
+         "")
+       md5 "." extension))
 
 ;; PHOTOS
 
 (defn photo-date [photo-file-name]
-  (let [directory (-> (File. photo-file-name)
-                      (JpegMetadataReader/readMetadata)
-                      (.getDirectory ExifDirectory)
-                      )]
-    (if (.containsTag directory ExifDirectory/TAG_DATETIME_DIGITIZED)
-      (date-to-map (.getDate ExifDirectory/TAG_DATETIME_DIGITIZED))
+  (let [exif-directory (-> (File. photo-file-name)
+                           (JpegMetadataReader/readMetadata)
+                           (.getDirectory ExifDirectory))]
+    (if (.containsTag exif-directory ExifDirectory/TAG_DATETIME_DIGITIZED)
+      (date-to-map (.getDate exif-directory  ExifDirectory/TAG_DATETIME_DIGITIZED))
       nil)))
 
 
 (deftype JPGArchiver []
   Archiver
+
+  (archiver-name [archiver] "kuvaa")
 
   (accept-source-file [archiver file]
     (= (.toLowerCase (extension (.getName file)))
@@ -147,10 +170,10 @@
     (file-name (photo-date temp-file-name) md5 "jpg"))
 
   (target-path [archiver temp-file-name]
-    (append-paths "photos"
-                  (-> temp-file-name
-                      photo-date
-                      target-path-by-date))))
+    (println "target path for photo")
+    (-> temp-file-name
+        photo-date
+        target-path-by-date)))
 
 ;; VIDEOS
 
@@ -160,6 +183,8 @@
 
 (deftype VideoArchiver []
   Archiver
+
+  (archiver-name [archiver] "videota")
 
   (accept-source-file [archiver file]
     (#{"avi" "mov"} (.toLowerCase (extension (.getName file)))))
@@ -174,18 +199,70 @@
                       target-path-by-date))))
 
 
+;; UI
+
+(defn start [archive-path]
+  (reset! running true)
+  (try (let [archivers [(JPGArchiver.) (VideoArchiver.)]]
+         (write-log "Archiving from " (source-directory) " to " archive-path)
+         (doseq [archiver archivers]
+           (write-log (str (count (files-for-archiver archiver (source-directory)))
+                           " "
+                           (archiver-name archiver))))
+         (doseq [archiver archivers]
+           (let [files (files-for-archiver archiver (source-directory))
+                 file-count (count files)]
+             (loop [files files
+                    index 1]
+               (when (seq files)
+                 (write-log "Started archiving file " index "/" file-count " " (.getPath (first files)))
+                 (archive archiver (.getPath (first files)) archive-path)
+                 (when @running
+                   (recur (rest files) (inc index)))))))
+         (if @running
+           (write-log "Archiving ready.")
+           (write-log "Archiving stopped by the user.")))
+       (catch Exception exception
+         (write-log "ERROR in archiving: " (.getMessage exception)))))
+
+(defn stop []
+  (reset! running false))
+
+(defn command-line-ui []
+  (swap! log
+         (fn [log-contents]
+           (when (> (count log-contents)
+                    0)
+             (println log-contents))
+           ""))
+  (swap! file-progress
+         (fn [value]
+           (when (> value 0)
+             (println value "%"))
+           -1))
+  (Thread/sleep 1000)
+  (if @running
+    (recur)
+    (do (println @log)
+        (println "stopped"))))
+
 (comment
-(doseq [archiver [(JPGArchiver.) (VideoArchiver.)]
+  (doseq [archiver [(JPGArchiver.) (VideoArchiver.)]
           file (files-for-archiver archiver (File. "/home/jukka/Downloads/kuvakoe"))]
     (archive archiver (.getPath file) "/home/jukka/Downloads/kuva-arkisto"))
 
-  (archive (VideoArchiver.) "/media/Kingston/DCIM/115___06/MVI_4599.MOV" "/home/jukka/Downloads/kuva-arkisto")
+  (archive (VideoArchiver.) "/media/Kingston/DCIM/115___06/MVI_4599.MOV" "/media/LaCie/kuva-arkisto")
+
+  (println (source-directory))
+
+(stop)
+(start "/media/LaCie/kuva-arkisto")
+(command-line-ui)
 
 
+  (println (target-path (JPGArchiver.) "/media/Kingston/DCIM/115___06/IMG_4566.JPG"))
 
-  (target-path (JPGArchiver.) "/home/jukka/Downloads/kuvakoe/conspare-side2.jpg")
-
-(println (photo-date "/home/jukka/Downloads/kuvakoe/conspare-side2.jpg"))
+  (println (photo-date  "/media/Kingston/DCIM/115___06/IMG_4566.JPG"))
 
   (println (files-for-archiver (JPGArchiver.) (File. "/home/jukka/Downloads")))
   )
