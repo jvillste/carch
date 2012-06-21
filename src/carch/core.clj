@@ -27,8 +27,8 @@
 (defn operating-system []
   (case (System/getProperty "os.name")
     "Linux" :linux
-    "Windows" :windows
-    :unknown))
+    "Windows XP" :windows
+    (throw (Exception. (str "Unknown operating system: " (System/getProperty "os.name")) ))))
 
 (defn roots []
   (case (operating-system)
@@ -37,20 +37,20 @@
     :windows (File/listRoots)))
 
 (defn source-directory []
-  (first (filter #(-> (File. (str (.getPath %) "/DCIM"))
-                      (.exists))
-                 (roots))))
+  (.getPath (first (filter #(-> (File. (str (.getPath %) "/DCIM"))
+                                (.exists))
+                           (roots)))))
 
-(defn files-in-directory [directory]
+(defn files-in-directory [directory-path]
   (reduce (fn [files file] (if (.isDirectory file)
-                             (concat files (files-in-directory file))
+                             (concat files (files-in-directory (.getPath file)))
                              (conj files file)))
           []
-          (.listFiles directory)))
+          (.listFiles (File. directory-path))))
 
-(defn files-for-archiver [archiver directory]
+(defn files-for-archiver [archiver directory-path]
   (filter #(accept-source-file archiver %)
-          (files-in-directory directory)))
+          (files-in-directory directory-path)))
 
 (defn extension [file-name]
   (.substring file-name (+ 1 (.lastIndexOf file-name "."))))
@@ -112,6 +112,11 @@
   (.renameTo (File. source-file-name)
              (File. target-file-name)))
 
+(defn stack-trace [exception]
+  (let [string-writer (java.io.StringWriter.)]
+    (.printStackTrace exception (java.io.PrintWriter. string-writer))
+    (.toString string-writer)))
+
 (defn archive [archiver source-file-name archive-path]
   (let [message-digest (java.security.MessageDigest/getInstance "MD5")
         temp-file-name (append-paths archive-path (str "archiver.temp." (extension source-file-name)))]
@@ -170,7 +175,6 @@
     (file-name (photo-date temp-file-name) md5 "jpg"))
 
   (target-path [archiver temp-file-name]
-    (println "target path for photo")
     (-> temp-file-name
         photo-date
         target-path-by-date)))
@@ -193,7 +197,7 @@
     (file-name (video-date temp-file-name) md5 (extension temp-file-name)))
 
   (target-path [archiver temp-file-name]
-    (append-paths "videos"
+    (append-paths "video"
                   (-> temp-file-name
                       video-date
                       target-path-by-date))))
@@ -201,29 +205,38 @@
 
 ;; UI
 
-(defn start [archive-path]
-  (reset! running true)
-  (try (let [archivers [(JPGArchiver.) (VideoArchiver.)]]
-         (write-log "Archiving from " (source-directory) " to " archive-path)
-         (doseq [archiver archivers]
-           (write-log (str (count (files-for-archiver archiver (source-directory)))
-                           " "
-                           (archiver-name archiver))))
-         (doseq [archiver archivers]
-           (let [files (files-for-archiver archiver (source-directory))
-                 file-count (count files)]
-             (loop [files files
-                    index 1]
-               (when (seq files)
-                 (write-log "Started archiving file " index "/" file-count " " (.getPath (first files)))
-                 (archive archiver (.getPath (first files)) archive-path)
-                 (when @running
-                   (recur (rest files) (inc index)))))))
-         (if @running
-           (write-log "Archiving ready.")
-           (write-log "Archiving stopped by the user.")))
-       (catch Exception exception
-         (write-log "ERROR in archiving: " (.getMessage exception)))))
+(defn start
+  ([archive-path]
+     (try (start (source-directory) archive-path)
+          (catch Exception exception
+            (write-log "ERROR in archiving: " (.getMessage exception))
+            (write-log (stack-trace exception)))))
+
+  ([source-path archive-path]
+     (reset! running true)
+     (try (let [archivers [(JPGArchiver.) (VideoArchiver.)]]
+            (write-log "Archiving from " source-path " to " archive-path)
+            (doseq [archiver archivers]
+              (write-log (str (count (files-for-archiver archiver source-path))
+                              " "
+                              (archiver-name archiver))))
+            (doseq [archiver archivers]
+              (write-log "********* " (archiver-name archiver) " *********")
+              (let [files (files-for-archiver archiver source-path)
+                    file-count (count files)]
+                (loop [files files
+                       index 1]
+                  (when (seq files)
+                    (write-log "Archiving file " index "/" file-count " " (.getPath (first files)))
+                    (archive archiver (.getPath (first files)) archive-path)
+                    (when @running
+                      (recur (rest files) (inc index)))))))
+            (if @running
+              (write-log "Archiving ready.")
+              (write-log "Archiving stopped by the user.")))
+          (catch Exception exception
+            (write-log "ERROR in archiving: " (.getMessage exception))
+            (write-log (stack-trace exception))))))
 
 (defn stop []
   (reset! running false))
@@ -255,7 +268,8 @@
 
   (println (source-directory))
 
-(stop)
+  (stop)
+  (start "/media/Kingston" "/media/LaCie/kuva-arkisto")
 (start "/media/LaCie/kuva-arkisto")
 (command-line-ui)
 
