@@ -191,7 +191,7 @@
   (archiver-name [archiver] "videota")
 
   (accept-source-file [archiver file]
-    (#{"avi" "mov"} (.toLowerCase (extension (.getName file)))))
+    (#{"avi" "mov" "mp4"} (.toLowerCase (extension (.getName file)))))
 
   (target-file-name [archiver md5 temp-file-name]
     (file-name (video-date temp-file-name) md5 (extension temp-file-name)))
