@@ -126,24 +126,24 @@
       (process-file source-file-name
                     (fn [buffer bytes-read]
                       (.update message-digest buffer 0 bytes-read)
-                      (.write output-stream buffer 0 bytes-read)))
-      (when @running
-        (do (.setLastModified (File. temp-file-name)
-                              (.lastModified (File. source-file-name)))
-            (let [md5 (bytes-to-hex-string (.digest message-digest))
-                  target-path (append-paths archive-path
-                                            (target-path archiver temp-file-name))
-                  target-file-name (append-paths target-path
-                                                 (target-file-name archiver md5 temp-file-name))]
-              (if (.exists (File. target-file-name))
-                (do (write-log "allready exists " target-file-name)
-                    (.delete (File. temp-file-name)))
+                      (.write output-stream buffer 0 bytes-read))))
+    (when @running
+      (do (.setLastModified (File. temp-file-name)
+                            (.lastModified (File. source-file-name)))
+          (let [md5 (bytes-to-hex-string (.digest message-digest))
+                target-path (append-paths archive-path
+                                          (target-path archiver temp-file-name))
+                target-file-name (append-paths target-path
+                                               (target-file-name archiver md5 temp-file-name))]
+            (if (.exists (File. target-file-name))
+              (do (write-log "allready exists " target-file-name)
+                  (.delete (File. temp-file-name)))
 
-                (do (.mkdirs (File. target-path))
-                    (move-file temp-file-name
-                               target-file-name))))))
-      (when (.exists (File. temp-file-name))
-        (.delete (File. temp-file-name))))))
+              (do (.mkdirs (File. target-path))
+                  (move-file temp-file-name
+                             target-file-name))))))
+    (when (.exists (File. temp-file-name))
+      (.delete (File. temp-file-name)))))
 
 (defn file-name [date md5 extension]
   (str (if date
@@ -260,6 +260,11 @@
         (println "stopped"))))
 
 (comment
+  (println (.getPath (File. (.getPath (File. "C:\\Documents and Settings\\Jukka\\My Documents\\Lataukset\\kuva-arkisto\\archiver.temp.JPG")))))
+
+  (.renameTo (File. "C:\\Documents and Settings\\Jukka\\My Documents\\Lataukset\\kuva-arkisto\\archiver.temp.JPG")
+             (File. "C:\\Documents and Settings\\Jukka\\My Documents\\Lataukset\\kuva-arkisto\\2012\\2012-06-24\\2012-06-24.16.08.46_a17dae016706a3de2a86f4b26463b738.jpg"))
+
   (doseq [archiver [(JPGArchiver.) (VideoArchiver.)]
           file (files-for-archiver archiver (File. "/home/jukka/Downloads/kuvakoe"))]
     (archive archiver (.getPath file) "/home/jukka/Downloads/kuva-arkisto"))
@@ -268,9 +273,10 @@
 
   (println (source-directory))
 
-  (stop)
+(stop)
   (start "/media/Kingston" "/media/LaCie/kuva-arkisto")
-(start "/media/LaCie/kuva-arkisto")
+  (start "/media/LaCie/kuva-arkisto")
+(start "C:\\Documents and Settings\\Jukka\\My Documents\\Lataukset\\kuva-arkisto")
 (command-line-ui)
 
 
