@@ -2,7 +2,8 @@
   (:import [java.io File]
            [java.util Calendar Date]
            [com.drew.imaging.jpeg JpegMetadataReader]
-           [com.drew.metadata.exif ExifDirectory]))
+           [com.drew.metadata.exif ExifDirectory])
+  (:use clojure.test))
 
 (def file-progress (atom 0))
 (def running (atom true))
@@ -36,10 +37,11 @@
                (.listFiles))
     :windows (File/listRoots)))
 
-(defn source-directory []
-  (.getPath (first (filter #(-> (File. (str (.getPath %) "/DCIM"))
-                                (.exists))
-                           (roots)))))
+(defn source-directories []
+  (map #(.getPath %)
+       (filter #(-> (File. (str (.getPath %) "/DCIM"))
+                    (.exists))
+               (roots))))
 
 (defn files-in-directory [directory-path]
   (reduce (fn [files file] (if (.isDirectory file)
@@ -117,33 +119,44 @@
     (.printStackTrace exception (java.io.PrintWriter. string-writer))
     (.toString string-writer)))
 
-(defn archive [archiver source-file-name archive-path]
-  (let [message-digest (java.security.MessageDigest/getInstance "MD5")
-        temp-file-name (append-paths archive-path (str "archiver.temp." (extension source-file-name)))]
-    (when (.exists (File. temp-file-name))
-      (.delete (File. temp-file-name)))
-    (with-open [output-stream (clojure.java.io/output-stream temp-file-name)]
-      (process-file source-file-name
-                    (fn [buffer bytes-read]
-                      (.update message-digest buffer 0 bytes-read)
-                      (.write output-stream buffer 0 bytes-read))))
-    (when @running
-      (do (.setLastModified (File. temp-file-name)
-                            (.lastModified (File. source-file-name)))
-          (let [md5 (bytes-to-hex-string (.digest message-digest))
-                target-path (append-paths archive-path
-                                          (target-path archiver temp-file-name))
-                target-file-name (append-paths target-path
-                                               (target-file-name archiver md5 temp-file-name))]
-            (if (.exists (File. target-file-name))
-              (do (write-log "allready exists " target-file-name)
-                  (.delete (File. temp-file-name)))
+(defn delete-if-exists [file-name]
+  (when (.exists (File. file-name))
+    (.delete (File. file-name))))
 
-              (do (.mkdirs (File. target-path))
-                  (move-file temp-file-name
-                             target-file-name))))))
-    (when (.exists (File. temp-file-name))
-      (.delete (File. temp-file-name)))))
+
+
+(defn archive [archiver source-file-name archive-paths]
+  (let [message-digest (java.security.MessageDigest/getInstance "MD5")
+        temp-file-names (map #(append-paths % (str "archiver.temp." (extension source-file-name)))  archive-paths)]
+
+    (dorun (map delete-if-exists temp-file-names))
+
+    (let [output-streams (map clojure.java.io/output-stream temp-file-names)]
+      (try
+        (process-file source-file-name
+                      (fn [buffer bytes-read]
+                        (.update message-digest buffer 0 bytes-read)
+                        (dorun (map #(.write % buffer 0 bytes-read)
+                                    output-streams))))
+        (finally
+         (dorun (map #(.close %) output-streams)))))
+
+    (doseq [archive-path archive-paths]
+      (let [temp-file-name (append-paths archive-path (str "archiver.temp." (extension source-file-name)))]
+        (when @running
+          (do (.setLastModified (File. temp-file-name)
+                                (.lastModified (File. source-file-name)))
+              (let [md5 (bytes-to-hex-string (.digest message-digest))
+                    target-path (append-paths archive-path
+                                              (target-path archiver temp-file-name))
+                    target-file-name (append-paths target-path
+                                                   (target-file-name archiver md5 temp-file-name))]
+                (if (.exists (File. target-file-name))
+                  (write-log "allready exists " target-file-name)
+                  (do (.mkdirs (File. target-path))
+                      (move-file temp-file-name
+                                 target-file-name))))))
+        (delete-if-exists temp-file-name)))))
 
 (defn file-name [date md5 extension]
   (str (if date
@@ -165,7 +178,7 @@
 (deftype JPGArchiver []
   Archiver
 
-  (archiver-name [archiver] "kuvaa")
+  (archiver-name [archiver] "photos")
 
   (accept-source-file [archiver file]
     (= (.toLowerCase (extension (.getName file)))
@@ -188,7 +201,7 @@
 (deftype VideoArchiver []
   Archiver
 
-  (archiver-name [archiver] "videota")
+  (archiver-name [archiver] "videos")
 
   (accept-source-file [archiver file]
     (#{"avi" "mov" "mp4"} (.toLowerCase (extension (.getName file)))))
@@ -205,38 +218,51 @@
 
 ;; UI
 
-(defn start
-  ([archive-path]
-     (try (start (source-directory) archive-path)
-          (catch Exception exception
-            (write-log "ERROR in archiving: " (.getMessage exception))
-            (write-log (stack-trace exception)))))
+(defn counts [archivers source-paths]
+  (apply str
+         (flatten (for [source-path source-paths]
+                    [source-path " :"
+                     (for [archiver archivers]
+                       [" "
+                        (count (files-for-archiver archiver source-path))
+                        " "
+                        (archiver-name archiver)])
+                     "\n"]))))
 
-  ([source-path archive-path]
-     (reset! running true)
-     (try (let [archivers [(JPGArchiver.) (VideoArchiver.)]]
-            (write-log "Archiving from " source-path " to " archive-path)
-            (doseq [archiver archivers]
-              (write-log (str (count (files-for-archiver archiver source-path))
-                              " "
-                              (archiver-name archiver))))
-            (doseq [archiver archivers]
-              (write-log "********* " (archiver-name archiver) " *********")
-              (let [files (files-for-archiver archiver source-path)
-                    file-count (count files)]
-                (loop [files files
-                       index 1]
-                  (when (seq files)
-                    (write-log "Archiving file " index "/" file-count " " (.getPath (first files)))
-                    (archive archiver (.getPath (first files)) archive-path)
-                    (when @running
-                      (recur (rest files) (inc index)))))))
-            (if @running
-              (write-log "Archiving ready.")
-              (write-log "Archiving stopped by the user.")))
-          (catch Exception exception
-            (write-log "ERROR in archiving: " (.getMessage exception))
-            (write-log (stack-trace exception))))))
+(deftest counts-test
+  (is (= (counts [(->JPGArchiver) (->VideoArchiver)]
+                 ["/foo"
+                  "foo2"])
+         "/foo : 0 photos 0 videos\nfoo2 : 0 photos 0 videos\n")))
+
+(defn start [{:keys [source-paths archive-paths]}]
+  (reset! running true)
+  (try (let [archivers [(->JPGArchiver) (->VideoArchiver)]
+             source-paths (or source-paths
+                              (source-directories))]
+         (write-log "Archiving from " source-paths " to " archive-paths)
+
+         (write-log (counts archivers source-paths))
+
+         (doseq [archiver archivers
+                 source-path source-paths]
+           (write-log "********* Archiving " (count (files-for-archiver archiver source-path)) " "(archiver-name archiver) " from " source-path " *********")
+           (let [files (files-for-archiver archiver source-path)
+                 file-count (count files)]
+             (loop [files files
+                    index 1]
+               (when (seq files)
+                 (write-log "Archiving file " index "/" file-count " " (.getPath (first files)))
+                 (archive archiver (.getPath (first files)) archive-paths)
+                 (when @running
+                   (recur (rest files) (inc index)))))))
+
+         (if @running
+           (write-log "Archiving ready.")
+           (write-log "Archiving stopped by the user.")))
+       (catch Exception exception
+         (write-log "ERROR in archiving: " (.getMessage exception))
+         (write-log (stack-trace exception)))))
 
 (defn stop []
   (reset! running false))
@@ -259,30 +285,18 @@
     (do (println @log)
         (println "stopped"))))
 
+(run-tests)
+
 (comment
-  (println (.getPath (File. (.getPath (File. "C:\\Documents and Settings\\Jukka\\My Documents\\Lataukset\\kuva-arkisto\\archiver.temp.JPG")))))
 
-  (.renameTo (File. "C:\\Documents and Settings\\Jukka\\My Documents\\Lataukset\\kuva-arkisto\\archiver.temp.JPG")
-             (File. "C:\\Documents and Settings\\Jukka\\My Documents\\Lataukset\\kuva-arkisto\\2012\\2012-06-24\\2012-06-24.16.08.46_a17dae016706a3de2a86f4b26463b738.jpg"))
+  (println (source-directories))
 
-  (doseq [archiver [(JPGArchiver.) (VideoArchiver.)]
-          file (files-for-archiver archiver (File. "/home/jukka/Downloads/kuvakoe"))]
-    (archive archiver (.getPath file) "/home/jukka/Downloads/kuva-arkisto"))
+  (start {:source-paths ["/home/jukka/Downloads/kuvat"
+                         "/home/jukka/Downloads/kuvat2"]
 
-  (archive (VideoArchiver.) "/media/Kingston/DCIM/115___06/MVI_4599.MOV" "/media/LaCie/kuva-arkisto")
+          :archive-paths ["/home/jukka/Downloads/kuvat3"
+                          "/home/jukka/Downloads/kuvat4"]})
+  (command-line-ui)
+  (stop)
 
-  (println (source-directory))
-
-(stop)
-  (start "/media/Kingston" "/media/LaCie/kuva-arkisto")
-  (start "/media/LaCie/kuva-arkisto")
-(start "C:\\Documents and Settings\\Jukka\\My Documents\\Lataukset\\kuva-arkisto")
-(command-line-ui)
-
-
-  (println (target-path (JPGArchiver.) "/media/Kingston/DCIM/115___06/IMG_4566.JPG"))
-
-  (println (photo-date  "/media/Kingston/DCIM/115___06/IMG_4566.JPG"))
-
-  (println (files-for-archiver (JPGArchiver.) (File. "/home/jukka/Downloads")))
   )
