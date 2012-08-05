@@ -240,7 +240,7 @@
   (try (let [archivers [(->JPGArchiver) (->VideoArchiver)]
              source-paths (or source-paths
                               (source-directories))]
-         (write-log "Archiving from " source-paths " to " archive-paths)
+         (write-log "Archiving from " (vec source-paths) " to " (vec archive-paths))
 
          (write-log (counts archivers source-paths))
 
@@ -296,7 +296,10 @@
 
           :archive-paths ["/home/jukka/Downloads/kuvat3"
                           "/home/jukka/Downloads/kuvat4"]})
-  (command-line-ui)
+
+(start {:archive-paths ["/home/jukka/Downloads/kuvat3"
+                          "/home/jukka/Downloads/kuvat4"]})
+(command-line-ui)
   (stop)
 
   )
