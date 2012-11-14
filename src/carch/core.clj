@@ -95,9 +95,10 @@
 (defn write-log [& message]
   (swap! log (fn [old-log] (str old-log "\n" (apply str message)))))
 
+(def buffer (byte-array (* 1024 1024 20)))
+
 (defn process-file [source-file-name processor]
-  (let [buffer (byte-array 1024)
-        file-size (.length (File. source-file-name))]
+  (let [file-size (.length (File. source-file-name))]
     (with-open [input-stream (clojure.java.io/input-stream source-file-name)]
       (loop [bytes-read (.read input-stream buffer)
              total-bytes-read bytes-read]
@@ -127,7 +128,8 @@
 
 (defn archive [archiver source-file-name archive-paths]
   (let [message-digest (java.security.MessageDigest/getInstance "MD5")
-        temp-file-names (map #(append-paths % (str "archiver.temp." (extension source-file-name)))  archive-paths)]
+        temp-file-names (map #(append-paths % (str "archiver.temp." (extension source-file-name)))
+                             archive-paths)]
 
     (dorun (map delete-if-exists temp-file-names))
 
@@ -136,18 +138,18 @@
         (process-file source-file-name
                       (fn [buffer bytes-read]
                         (.update message-digest buffer 0 bytes-read)
-                        (dorun (map #(.write % buffer 0 bytes-read)
+                        (dorun (pmap #(.write % buffer 0 bytes-read)
                                     output-streams))))
         (finally
          (dorun (map #(.close %) output-streams)))))
 
-    (doseq [archive-path archive-paths]
+    (let [md5 (bytes-to-hex-string (.digest message-digest))]
+      (doseq [archive-path archive-paths]
       (let [temp-file-name (append-paths archive-path (str "archiver.temp." (extension source-file-name)))]
         (when @running
           (do (.setLastModified (File. temp-file-name)
                                 (.lastModified (File. source-file-name)))
-              (let [md5 (bytes-to-hex-string (.digest message-digest))
-                    target-path (append-paths archive-path
+              (let [target-path (append-paths archive-path
                                               (target-path archiver temp-file-name))
                     target-file-name (append-paths target-path
                                                    (target-file-name archiver md5 temp-file-name))]
@@ -156,7 +158,7 @@
                   (do (.mkdirs (File. target-path))
                       (move-file temp-file-name
                                  target-file-name))))))
-        (delete-if-exists temp-file-name)))))
+        (delete-if-exists temp-file-name))))))
 
 (defn file-name [date md5 extension]
   (str (if date
@@ -236,6 +238,10 @@
          "/foo : 0 photos 0 videos\nfoo2 : 0 photos 0 videos\n")))
 
 (defn start [{:keys [source-paths archive-paths]}]
+  (doseq  [archive-path archive-paths]
+    (when (not (.exists (File. archive-path)))
+      (throw (Exception. (str "The archive path " archive-path " does not exist.")))))
+
   (reset! running true)
   (try (let [archivers [(->JPGArchiver) (->VideoArchiver)]
              source-paths (or source-paths
@@ -253,7 +259,11 @@
                     index 1]
                (when (seq files)
                  (write-log "Archiving file " index "/" file-count " " (.getPath (first files)))
-                 (archive archiver (.getPath (first files)) archive-paths)
+                 (try (archive archiver (.getPath (first files)) archive-paths)
+                      (catch Exception exception
+                        (write-log "ERROR in archiving file " (.getPath (first files)) " : " (.getMessage exception))
+                        (write-log (stack-trace exception))))
+
                  (when @running
                    (recur (rest files) (inc index)))))))
 
@@ -277,7 +287,8 @@
   (swap! file-progress
          (fn [value]
            (when (> value 0)
-             (println value "%"))
+             (do (print value "%  \r")
+                 (flush)))
            -1))
   (Thread/sleep 1000)
   (if @running
@@ -291,15 +302,15 @@
 
   (println (source-directories))
 
-  (start {:source-paths ["/home/jukka/Downloads/kuvat"
-                         "/home/jukka/Downloads/kuvat2"]
+(start {:source-paths ["/home/jukka/Pictures/visa"]
 
-          :archive-paths ["/home/jukka/Downloads/kuvat3"
-                          "/home/jukka/Downloads/kuvat4"]})
+          :archive-paths ["/home/jukka/Pictures/temp"
+                          "/home/jukka/Pictures/temp2"]})
 
-(start {:archive-paths ["/home/jukka/Downloads/kuvat3"
-                          "/home/jukka/Downloads/kuvat4"]})
+(start {:source-paths nil
+          :archive-paths ["/home/jukka/Downloads/kuvat"]})
+  
 (command-line-ui)
-  (stop)
+(stop)
 
   )
