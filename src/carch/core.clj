@@ -1,8 +1,9 @@
 (ns carch.core
+  (:require [carch.common :as common])
   (:import [java.io File]
            [java.util Calendar Date]
            [com.drew.imaging.jpeg JpegMetadataReader]
-           [com.drew.metadata.exif ExifDirectory])
+           [com.drew.metadata.exif ExifSubIFDDirectory])
   (:use clojure.test))
 
 (def file-progress (atom 0))
@@ -43,16 +44,9 @@
                     (.exists))
                (roots))))
 
-(defn files-in-directory [directory-path]
-  (reduce (fn [files file] (if (.isDirectory file)
-                             (concat files (files-in-directory (.getPath file)))
-                             (conj files file)))
-          []
-          (.listFiles (File. directory-path))))
-
 (defn files-for-archiver [archiver directory-path]
   (filter #(accept-source-file archiver %)
-          (files-in-directory directory-path)))
+          (common/files-in-directory directory-path)))
 
 (defn extension [file-name]
   (.substring file-name (+ 1 (.lastIndexOf file-name "."))))
@@ -171,9 +165,9 @@
 (defn photo-date [photo-file-name]
   (let [exif-directory (-> (File. photo-file-name)
                            (JpegMetadataReader/readMetadata)
-                           (.getDirectory ExifDirectory))]
-    (if (.containsTag exif-directory ExifDirectory/TAG_DATETIME_DIGITIZED)
-      (date-to-map (.getDate exif-directory  ExifDirectory/TAG_DATETIME_DIGITIZED))
+                           (.getDirectory ExifSubIFDDirectory))]
+    (if (.containsTag exif-directory ExifSubIFDDirectory/TAG_DATETIME_DIGITIZED)
+      (date-to-map (.getDate exif-directory  ExifSubIFDDirectory/TAG_DATETIME_DIGITIZED))
       nil)))
 
 
