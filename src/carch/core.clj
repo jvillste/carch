@@ -4,6 +4,7 @@
            [java.util Calendar Date]
            [com.drew.imaging.jpeg JpegMetadataReader]
            [com.drew.metadata.exif ExifSubIFDDirectory])
+  
   (:use clojure.test))
 
 (def file-progress (atom 0))
@@ -133,32 +134,38 @@
                       (fn [buffer bytes-read]
                         (.update message-digest buffer 0 bytes-read)
                         (dorun (pmap #(.write % buffer 0 bytes-read)
-                                    output-streams))))
+                                     output-streams))))
         (finally
-         (dorun (map #(.close %) output-streams)))))
+          (dorun (map #(.close %) output-streams)))))
 
     (let [md5 (bytes-to-hex-string (.digest message-digest))]
       (doseq [archive-path archive-paths]
-      (let [temp-file-name (append-paths archive-path (str "archiver.temp." (extension source-file-name)))]
-        (when @running
-          (do (.setLastModified (File. temp-file-name)
-                                (.lastModified (File. source-file-name)))
-              (let [target-path (append-paths archive-path
-                                              (target-path archiver temp-file-name))
-                    target-file-name (append-paths target-path
-                                                   (target-file-name archiver md5 temp-file-name))]
-                (if (.exists (File. target-file-name))
-                  (write-log "allready exists " target-file-name)
-                  (do (.mkdirs (File. target-path))
-                      (move-file temp-file-name
-                                 target-file-name))))))
-        (delete-if-exists temp-file-name))))))
+        (let [temp-file-name (append-paths archive-path (str "archiver.temp." (extension source-file-name)))]
+          (when @running
+            (do (.setLastModified (File. temp-file-name)
+                                  (.lastModified (File. source-file-name)))
+                (let [target-path (append-paths archive-path
+                                                (target-path archiver temp-file-name))
+                      target-file-name (append-paths target-path
+                                                     (target-file-name archiver md5 temp-file-name))]
+                  (if (.exists (File. target-file-name))
+                    (write-log "allready exists " target-file-name)
+                    (do (.mkdirs (File. target-path))
+                        (move-file temp-file-name
+                                   target-file-name))))))
+          (delete-if-exists temp-file-name))))))
 
 (defn file-name [date md5 extension]
   (str (if date
          (str (file-name-date-string date) "_")
          "")
        md5 "." extension))
+
+(defn file-last-modified-date [file-name]
+  (date-to-map (Date. (.lastModified (File. file-name)))))
+
+#_(defn file-created-date [file-name]
+  (date-to-map (Date. (.creationTime (File/readAttributes (Path. file-name) BasicFileAttributes)))))
 
 ;; PHOTOS
 
@@ -188,10 +195,26 @@
         photo-date
         target-path-by-date)))
 
-;; VIDEOS
+;; RAW
 
-(defn video-date [video-file-name]
-  (date-to-map (Date. (.lastModified (File. video-file-name)))))
+(deftype RawArchiver []
+  Archiver
+
+  (archiver-name [archiver] "raws")
+
+  (accept-source-file [archiver file]
+    (= (.toLowerCase (extension (.getName file)))
+       "cr2"))
+
+  (target-file-name [archiver md5 temp-file-name]
+    (file-name (file-last-modified-date temp-file-name) md5 "cr2"))
+
+  (target-path [archiver temp-file-name]
+    (-> temp-file-name
+        file-last-modified-date
+        target-path-by-date)))
+
+;; VIDEOS
 
 
 (deftype VideoArchiver []
@@ -203,12 +226,12 @@
     (#{"avi" "mov" "mp4"} (.toLowerCase (extension (.getName file)))))
 
   (target-file-name [archiver md5 temp-file-name]
-    (file-name (video-date temp-file-name) md5 (extension temp-file-name)))
+    (file-name (file-last-modified-date temp-file-name) md5 (extension temp-file-name)))
 
   (target-path [archiver temp-file-name]
     (append-paths "video"
                   (-> temp-file-name
-                      video-date
+                      file-last-modified-date
                       target-path-by-date))))
 
 
@@ -237,7 +260,7 @@
       (throw (Exception. (str "The archive path " archive-path " does not exist.")))))
 
   (reset! running true)
-  (try (let [archivers [(->JPGArchiver) (->VideoArchiver)]
+  (try (let [archivers [(->JPGArchiver) (->VideoArchiver) (->RawArchiver)]
              source-paths (or source-paths
                               (source-directories))]
          (write-log "Archiving from " (vec source-paths) " to " (vec archive-paths))
@@ -296,15 +319,22 @@
 
   (println (source-directories))
 
-(start {:source-paths ["/home/jukka/Pictures/visa"]
+  (start {:source-paths ["/Users/jukka/Pictures/uudet_kuvat"]
 
-          :archive-paths ["/home/jukka/Pictures/temp"
-                          "/home/jukka/Pictures/temp2"]})
+          :archive-paths ["/Users/jukka/Downloads/temp"]})
 
-(start {:source-paths nil
+
+  (start {:source-paths nil
           :archive-paths ["/home/jukka/Downloads/kuvat"]})
+
+
+
+  (photo-date "/Volumes/NEW VOLUME/DCIM/789CANON/IMG_8953.jpg")
+  (file-last-modified-date "/Volumes/NEW VOLUME/DCIM/789CANON/IMG_8953.cr2")
+  (file-last-modified-date "/Volumes/NEW VOLUME/DCIM/789CANON/IMG_8953.jpg")
   
-(command-line-ui)
-(stop)
+  
+  (command-line-ui)
+  (stop)
 
   )

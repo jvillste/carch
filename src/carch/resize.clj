@@ -16,12 +16,15 @@
   (doseq [source-path (->> (common/files-in-directory source-dir)
                            (map #(.getAbsolutePath %))
                            (filter #(.endsWith % ".jpg"))
-                           #_(filter #(.contains % "2012-01-01")))]
+                           (filter (fn [path] (or (.contains path "2015")))))]
     (let [target-path (target-path source-path source-dir target-dir)]
       (if (.exists (File. target-path))
-        (println "already exists" target-path)
+        (print ".")
+        #_(println "already exists" target-path)
         (do (println source-path " -> " target-path)
             (.mkdirs (.getParentFile (File. target-path)))
             (shell/sh "sips" "-Z" "1024" "--setProperty" "formatOptions" "40" source-path "--out" target-path))))))
 
-#_(resize "/Volumes/BACKUP2/kuva-arkisto/" "/Users/jukka/Downloads/arkisto_mini/")
+(resize "/Volumes/BACKUP2/kuva-arkisto/" "/Users/jukka/Pictures/arkisto_mini/")
+
+#_(resize "/Users/jukka/Downloads/uudet_kuvat/" "/Users/jukka/Downloads/arkisto_mini/")
