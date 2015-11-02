@@ -25,6 +25,6 @@
             (.mkdirs (.getParentFile (File. target-path)))
             (shell/sh "sips" "-Z" "1024" "--setProperty" "formatOptions" "40" source-path "--out" target-path))))))
 
-(resize "/Volumes/BACKUP2/kuva-arkisto/" "/Users/jukka/Pictures/arkisto_mini/")
+(resize "/Volumes/BACKUP1/kuva-arkisto/" "/Users/jukka/Pictures/arkisto_mini/")
 
 #_(resize "/Users/jukka/Downloads/uudet_kuvat/" "/Users/jukka/Downloads/arkisto_mini/")
