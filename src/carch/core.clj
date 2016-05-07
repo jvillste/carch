@@ -1,11 +1,14 @@
 (ns carch.core
-  (:require [carch.common :as common])
+  (:require [carch.common :as common]
+            [carch.exiftool :as exiftool]
+            [clojure.java.shell :as shell])
   (:import [java.io File]
            [java.util Calendar Date]
            [com.drew.imaging.jpeg JpegMetadataReader]
            [com.drew.metadata.exif ExifSubIFDDirectory])
   
   (:use clojure.test))
+
 
 (def file-progress (atom 0))
 (def running (atom true))
@@ -165,7 +168,7 @@
   (date-to-map (Date. (.lastModified (File. file-name)))))
 
 #_(defn file-created-date [file-name]
-  (date-to-map (Date. (.creationTime (File/readAttributes (Path. file-name) BasicFileAttributes)))))
+    (date-to-map (Date. (.creationTime (File/readAttributes (Path. file-name) BasicFileAttributes)))))
 
 ;; PHOTOS
 
@@ -226,13 +229,12 @@
     (#{"avi" "mov" "mp4"} (.toLowerCase (extension (.getName file)))))
 
   (target-file-name [archiver md5 temp-file-name]
-    (file-name (file-last-modified-date temp-file-name) md5 (extension temp-file-name)))
+    (file-name (exiftool/get-date temp-file-name) md5 (extension temp-file-name)))
 
   (target-path [archiver temp-file-name]
-    (append-paths "video"
-                  (-> temp-file-name
-                      file-last-modified-date
-                      target-path-by-date))))
+    (-> temp-file-name
+        exiftool/get-date
+        target-path-by-date)))
 
 
 ;; UI
@@ -313,13 +315,15 @@
     (do (println @log)
         (println "stopped"))))
 
+
 (run-tests)
 
 (comment
-
+  (stop)
+  
   (println (source-directories))
 
-  (start {:source-paths ["/Users/jukka/Pictures/uudet_kuvat"]
+  (start {:source-paths ["/Users/jukka/Downloads/source"]
 
           :archive-paths ["/Users/jukka/Downloads/temp"]})
 
@@ -329,10 +333,17 @@
 
 
 
-  (photo-date "/Volumes/NEW VOLUME/DCIM/789CANON/IMG_8953.jpg")
+  (photo-date "/Users/jukka/Pictures/DSC_0002.JPG")
   (file-last-modified-date "/Volumes/NEW VOLUME/DCIM/789CANON/IMG_8953.cr2")
   (file-last-modified-date "/Volumes/NEW VOLUME/DCIM/789CANON/IMG_8953.jpg")
+
+  (with-out-str
+    (run-command "exiftool" "-CreateDate" "/Users/jukka/Pictures/uudet_kuvat/100ANDRO/MOV_0006.mp4"))
   
+  
+  (.getImageMeta (ExifTool.)
+                 (File. "/Users/jukka/Pictures/uudet_kuvat/100ANDRO/DSC_0244.JPG" #_"/Users/jukka/Pictures/uudet_kuvat/100ANDRO/MOV_0006.mp4")
+                 (into-array [com.thebuzzmedia.exiftool.ExifTool$Tag/DATE_TIME_ORIGINAL]))
   
   (command-line-ui)
   (stop)
