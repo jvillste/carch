@@ -31,12 +31,12 @@
 (defn parse-date [string]
   (let [[year month day hour minute second] (rest (re-matches #"(\d\d\d\d):(\d\d):(\d\d) (\d\d):(\d\d):(\d\d)"
                                                               string))]
-    {:year (read-string year)
-     :month (read-string month)
-     :day (read-string day)
-     :hour (read-string hour)
-     :minute (read-string minute)
-     :second (read-string second)}))
+    {:year (Integer/parseInt year)
+     :month (Integer/parseInt month)
+     :day (Integer/parseInt day)
+     :hour (Integer/parseInt hour)
+     :minute (Integer/parseInt minute)
+     :second (Integer/parseInt second)}))
 
 (deftest parse-date-test
   (is (= {:year 2016,
