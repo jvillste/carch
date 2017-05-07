@@ -7,3 +7,7 @@
   (.start (Thread. core/command-line-ui))
   (read-line)
   (reset! core/running false))
+
+#_ (-main "/Users/jukka/Dropbox/bin/kuvat_kortilta_macissa copy.clj")
+
+

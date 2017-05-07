@@ -1,11 +1,14 @@
 (ns carch.core
   (:require [carch.common :as common]
             [carch.exiftool :as exiftool]
-            [clojure.java.shell :as shell])
+            [clojure.java.shell :as shell]
+            [clojure.java.io :as io])
   (:import [java.io File]
            [java.util Calendar Date]
            [com.drew.imaging.jpeg JpegMetadataReader]
-           [com.drew.metadata.exif ExifSubIFDDirectory])
+           [com.drew.metadata.exif ExifSubIFDDirectory]
+           [java.nio.file.attribute BasicFileAttributes]
+           [java.nio.file Files Path LinkOption])
   
   (:use clojure.test))
 
@@ -13,6 +16,7 @@
 (def file-progress (atom 0))
 (def running (atom true))
 (def log (atom ""))
+(def files-with-errors (atom []))
 
 (defprotocol Archiver
   (archiver-name [archiver])
@@ -167,12 +171,19 @@
 (defn file-last-modified-date [file-name]
   (date-to-map (Date. (.lastModified (File. file-name)))))
 
-#_(defn file-created-date [file-name]
-    (date-to-map (Date. (.creationTime (File/readAttributes (Path. file-name) BasicFileAttributes)))))
+(defn file-creation-date [file-name]
+  (date-to-map (Date/from (.toInstant (get (Files/readAttributes (.toPath (io/file file-name))
+                                                                 "*"
+                                                                 (into-array LinkOption [])
+                                                                 #_(.class BasicFileAttributes))
+                                           "creationTime")))))
+
+#_(file-creation-date "/Users/jukka/Dropbox/bin/kuvat_kortilta_macissa copy.clj")
+
 
 ;; PHOTOS
 
-(defn photo-date [photo-file-name]
+(defn photo-exif-date [photo-file-name]
   (let [exif-directory (-> (File. photo-file-name)
                            (JpegMetadataReader/readMetadata)
                            (.getDirectory ExifSubIFDDirectory))]
@@ -180,6 +191,10 @@
       (date-to-map (.getDate exif-directory  ExifSubIFDDirectory/TAG_DATETIME_DIGITIZED))
       nil)))
 
+(defn photo-date [file-name]
+  (try (photo-exif-date file-name)
+       (catch Exception e
+         (file-creation-date file-name))))
 
 (deftype JPGArchiver []
   Archiver
@@ -210,15 +225,19 @@
        "cr2"))
 
   (target-file-name [archiver md5 temp-file-name]
-    (file-name (file-last-modified-date temp-file-name) md5 "cr2"))
+    (file-name (file-creation-date temp-file-name) md5 "cr2"))
 
   (target-path [archiver temp-file-name]
     (-> temp-file-name
-        file-last-modified-date
+        file-creation-date
         target-path-by-date)))
 
 ;; VIDEOS
 
+(defn get-video-date [file-name]
+  (try (exiftool/get-date file-name)
+       (catch Exception e
+         (file-creation-date file-name))))
 
 (deftype VideoArchiver []
   Archiver
@@ -229,11 +248,11 @@
     (#{"avi" "mov" "mp4"} (.toLowerCase (extension (.getName file)))))
 
   (target-file-name [archiver md5 temp-file-name]
-    (file-name (exiftool/get-date temp-file-name) md5 (extension temp-file-name)))
+    (file-name (get-video-date temp-file-name) md5 (extension temp-file-name)))
 
   (target-path [archiver temp-file-name]
     (-> temp-file-name
-        exiftool/get-date
+        get-video-date
         target-path-by-date)))
 
 
@@ -280,6 +299,7 @@
                  (write-log "Archiving file " index "/" file-count " " (.getPath (first files)))
                  (try (archive archiver (.getPath (first files)) archive-paths)
                       (catch Exception exception
+                        (swap! files-with-errors conj (.getPath (first files)))
                         (write-log "ERROR in archiving file " (.getPath (first files)) " : " (.getMessage exception))
                         (write-log (stack-trace exception))))
 
@@ -288,7 +308,10 @@
 
          (if @running
            (write-log "Archiving ready.")
-           (write-log "Archiving stopped by the user.")))
+           (write-log "Archiving stopped by the user."))
+         (write-log (count @files-with-errors) "files had errors:")
+         (doseq [file-name @files-with-errors]
+           (write-log file-name)))
        (catch Exception exception
          (write-log "ERROR in archiving: " (.getMessage exception))
          (write-log (stack-trace exception)))))

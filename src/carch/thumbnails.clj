@@ -1,4 +1,4 @@
-(ns carch.core
+(ns carch.thumbnails
   (:require [carch.common :as common]
             [clojure.java.shell :as shell])
   (:import [java.io File]
@@ -12,19 +12,19 @@
   (let [relative-path (.substring source-path (.length source-dir))]
     (str target-dir relative-path)))
 
-(defn resize [source-dir target-dir]
+(defn thumbnails [source-dir target-dir]
   (doseq [source-path (->> (common/files-in-directory source-dir)
                            (map #(.getAbsolutePath %))
-                           (filter #(.endsWith % ".jpg"))
+                           (filter #(.endsWith % ".mp4"))
                            #_(filter (fn [path] (or (.contains path "2016")))))]
     (let [target-path (target-path source-path source-dir target-dir)]
       (if (.exists (File. target-path))
         (print ".")
         #_(println "already exists" target-path)
         (do (println source-path " -> " target-path)
-            (.mkdirs (.getParentFile (File. target-path)))
-            (shell/sh "sips" "-Z" "1024" "--setProperty" "formatOptions" "40" source-path "--out" target-path))))))
+            #_(.mkdirs (.getParentFile (File. target-path)))
+            #_(shell/sh "sips" "-Z" "1024" "--setProperty" "formatOptions" "40" source-path "--out" target-path))))))
 
-(resize "/Volumes/BACKUP1/kuva-arkisto/" "/Users/jukka/Pictures/minikuva-arkisto/")
+(thumbnails "/Volumes/BACKUP3/kuva-arkisto/2016" "/Users/jukka/Downloads/thumbnails")
 
 #_(resize "/Users/jukka/Downloads/uudet_kuvat/" "/Users/jukka/Downloads/arkisto_mini/")
