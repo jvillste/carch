@@ -245,7 +245,7 @@
   (archiver-name [archiver] "videos")
 
   (accept-source-file [archiver file]
-    (#{"avi" "mov" "mp4"} (.toLowerCase (extension (.getName file)))))
+    (#{"avi" "mov" "mp4" "mpg"} (.toLowerCase (extension (.getName file)))))
 
   (target-file-name [archiver md5 temp-file-name]
     (file-name (get-video-date temp-file-name) md5 (extension temp-file-name)))
@@ -339,14 +339,12 @@
         (println "stopped"))))
 
 
-(run-tests)
-
 (comment
   (stop)
   
   (println (source-directories))
 
-  (start {:source-paths ["/Users/jukka/Downloads/source"]
+  (start {:source-paths ["/Users/jukka/Pictures/uudet_kuvat/html" #_"/Users/jukka/Downloads/source"]
 
           :archive-paths ["/Users/jukka/Downloads/temp"]})
 
