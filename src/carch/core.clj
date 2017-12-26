@@ -196,6 +196,7 @@
        (catch Exception e
          (file-creation-date file-name))))
 
+
 (deftype JPGArchiver []
   Archiver
 
@@ -221,11 +222,10 @@
   (archiver-name [archiver] "raws")
 
   (accept-source-file [archiver file]
-    (= (.toLowerCase (extension (.getName file)))
-       "cr2"))
+    (#{"cr2" "nef"} (.toLowerCase (extension (.getName file)))))
 
   (target-file-name [archiver md5 temp-file-name]
-    (file-name (file-creation-date temp-file-name) md5 "cr2"))
+    (file-name (photo-date temp-file-name) md5 (extension temp-file-name)))
 
   (target-path [archiver temp-file-name]
     (-> temp-file-name
@@ -245,7 +245,7 @@
   (archiver-name [archiver] "videos")
 
   (accept-source-file [archiver file]
-    (#{"avi" "mov" "mp4" "mpg"} (.toLowerCase (extension (.getName file)))))
+    (#{"avi" "mov" "mp4" "mpg" "wmv"} (.toLowerCase (extension (.getName file)))))
 
   (target-file-name [archiver md5 temp-file-name]
     (file-name (get-video-date temp-file-name) md5 (extension temp-file-name)))
