@@ -197,40 +197,24 @@
          (file-creation-date file-name))))
 
 
-(deftype JPGArchiver []
+(deftype PhotoArchiver []
   Archiver
 
   (archiver-name [archiver] "photos")
 
   (accept-source-file [archiver file]
-    (= (.toLowerCase (extension (.getName file)))
-       "jpg"))
+    (#{"cr2" "nef" "jpg" "tif"} (.toLowerCase (extension (.getName file)))))
 
   (target-file-name [archiver md5 temp-file-name]
-    (file-name (photo-date temp-file-name) md5 "jpg"))
+    (file-name (photo-date temp-file-name)
+               md5
+               (extension temp-file-name)))
 
   (target-path [archiver temp-file-name]
     (-> temp-file-name
         photo-date
         target-path-by-date)))
 
-;; RAW
-
-(deftype RawArchiver []
-  Archiver
-
-  (archiver-name [archiver] "raws")
-
-  (accept-source-file [archiver file]
-    (#{"cr2" "nef"} (.toLowerCase (extension (.getName file)))))
-
-  (target-file-name [archiver md5 temp-file-name]
-    (file-name (photo-date temp-file-name) md5 (extension temp-file-name)))
-
-  (target-path [archiver temp-file-name]
-    (-> temp-file-name
-        file-creation-date
-        target-path-by-date)))
 
 ;; VIDEOS
 
@@ -270,7 +254,7 @@
                      "\n"]))))
 
 (deftest counts-test
-  (is (= (counts [(->JPGArchiver) (->VideoArchiver)]
+  (is (= (counts [(->PhotoArchiver) (->VideoArchiver)]
                  ["/foo"
                   "foo2"])
          "/foo : 0 photos 0 videos\nfoo2 : 0 photos 0 videos\n")))
@@ -281,7 +265,7 @@
       (throw (Exception. (str "The archive path " archive-path " does not exist.")))))
 
   (reset! running true)
-  (try (let [archivers [(->JPGArchiver) (->VideoArchiver) (->RawArchiver)]
+  (try (let [archivers [(->PhotoArchiver) (->VideoArchiver)]
              source-paths (or source-paths
                               (source-directories))]
          (write-log "Archiving from " (vec source-paths) " to " (vec archive-paths))
@@ -344,9 +328,10 @@
   
   (println (source-directories))
 
-  (start {:source-paths ["/Users/jukka/Pictures/uudet_kuvat/html" #_"/Users/jukka/Downloads/source"]
+  (.run (Thread. (fn []
+                   (start {:source-paths ["/Users/jukka/Google Drive/gfx/juw/kuvia2" "/Users/jukka/Google Drive/gfx/juw/kuvia"]
 
-          :archive-paths ["/Users/jukka/Downloads/temp"]})
+                           :archive-paths ["/Volumes/Backup 2 1/kuva-arkisto" "/Volumes/Backup 2 2/kuva-arkisto"]}))))
 
 
   (start {:source-paths nil
