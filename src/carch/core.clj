@@ -126,9 +126,18 @@
   (when (.exists (File. file-name))
     (.delete (File. file-name))))
 
+(defn remove-file-extension
+  "Remove a file extension from a string."
+  [filename]
+  (.substring filename 0 (.lastIndexOf filename ".")))
 
+(defn change-file-extension [source-file-name new-extension]
+  (str (remove-file-extension source-file-name)
+       "."
+       new-extension))
 
 (defn archive [archiver source-file-name archive-paths]
+  (println "archiving " source-file-name)
   (let [message-digest (java.security.MessageDigest/getInstance "MD5")
         temp-file-names (map #(append-paths % (str "archiver.temp." (extension source-file-name)))
                              archive-paths)]
@@ -154,12 +163,17 @@
                 (let [target-path (append-paths archive-path
                                                 (target-path archiver temp-file-name))
                       target-file-name (append-paths target-path
-                                                     (target-file-name archiver md5 temp-file-name))]
+                                                     (target-file-name archiver md5 temp-file-name))
+                      aae-source-file-name (change-file-extension source-file-name "AAE")]
                   (if (.exists (File. target-file-name))
                     (write-log "allready exists " target-file-name)
                     (do (.mkdirs (File. target-path))
                         (move-file temp-file-name
-                                   target-file-name))))))
+                                   target-file-name)
+                        (prn aae-source-file-name (.exists (File. aae-source-file-name)))
+                        (when (.exists (File. aae-source-file-name))
+                          (io/copy (io/file aae-source-file-name)
+                                   (io/file (change-file-extension target-file-name "AAE")))))))))
           (delete-if-exists temp-file-name))))))
 
 (defn file-name [date md5 extension]
@@ -223,6 +237,10 @@
        (catch Exception e
          (file-creation-date file-name))))
 
+(comment
+  (exiftool/get-date "/Users/jukka/Downloads/IMG_0095.MOV")
+  (get-video-date "/Users/jukka/Downloads/IMG_0095.MOV"))
+
 (deftype VideoArchiver []
   Archiver
 
@@ -260,6 +278,7 @@
          "/foo : 0 photos 0 videos\nfoo2 : 0 photos 0 videos\n")))
 
 (defn start [{:keys [source-paths archive-paths]}]
+  (println "starting")
   (doseq  [archive-path archive-paths]
     (when (not (.exists (File. archive-path)))
       (throw (Exception. (str "The archive path " archive-path " does not exist.")))))
@@ -334,8 +353,8 @@
                            :archive-paths ["/Volumes/Backup 2 1/kuva-arkisto" "/Volumes/Backup 2 2/kuva-arkisto"]}))))
 
 
-  (start {:source-paths nil
-          :archive-paths ["/home/jukka/Downloads/kuvat"]})
+  (start {:source-paths ["/Users/jukka/Downloads/source"]
+          :archive-paths ["/Users/jukka/Downloads/target"]})
 
 
 
