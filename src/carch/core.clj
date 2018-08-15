@@ -278,7 +278,6 @@
          "/foo : 0 photos 0 videos\nfoo2 : 0 photos 0 videos\n")))
 
 (defn start [{:keys [source-paths archive-paths]}]
-  (println "starting")
   (doseq  [archive-path archive-paths]
     (when (not (.exists (File. archive-path)))
       (throw (Exception. (str "The archive path " archive-path " does not exist.")))))
