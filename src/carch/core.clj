@@ -137,7 +137,6 @@
        new-extension))
 
 (defn archive [archiver source-file-name archive-paths]
-  (println "archiving " source-file-name)
   (let [message-digest (java.security.MessageDigest/getInstance "MD5")
         temp-file-names (map #(append-paths % (str "archiver.temp." (extension source-file-name)))
                              archive-paths)]
@@ -165,15 +164,16 @@
                       target-file-name (append-paths target-path
                                                      (target-file-name archiver md5 temp-file-name))
                       aae-source-file-name (change-file-extension source-file-name "AAE")]
+
+                  (when (.exists (File. aae-source-file-name))
+                    (io/copy (io/file aae-source-file-name)
+                             (io/file (change-file-extension target-file-name "AAE"))))
+
                   (if (.exists (File. target-file-name))
                     (write-log "allready exists " target-file-name)
                     (do (.mkdirs (File. target-path))
                         (move-file temp-file-name
-                                   target-file-name)
-                        (prn aae-source-file-name (.exists (File. aae-source-file-name)))
-                        (when (.exists (File. aae-source-file-name))
-                          (io/copy (io/file aae-source-file-name)
-                                   (io/file (change-file-extension target-file-name "AAE")))))))))
+                                   target-file-name))))))
           (delete-if-exists temp-file-name))))))
 
 (defn file-name [date md5 extension]
