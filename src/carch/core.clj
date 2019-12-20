@@ -5,11 +5,12 @@
             [clojure.java.io :as io])
   (:import [java.io File]
            [java.util Calendar Date]
+           [com.drew.imaging ImageMetadataReader]
            [com.drew.imaging.jpeg JpegMetadataReader]
            [com.drew.metadata.exif ExifSubIFDDirectory]
            [java.nio.file.attribute BasicFileAttributes]
            [java.nio.file Files Path LinkOption])
-  
+
   (:use clojure.test))
 
 
@@ -198,17 +199,25 @@
 ;; PHOTOS
 
 (defn photo-exif-date [photo-file-name]
-  (let [exif-directory (-> (File. photo-file-name)
-                           (JpegMetadataReader/readMetadata)
-                           (.getDirectory ExifSubIFDDirectory))]
-    (if (.containsTag exif-directory ExifSubIFDDirectory/TAG_DATETIME_DIGITIZED)
-      (date-to-map (.getDate exif-directory  ExifSubIFDDirectory/TAG_DATETIME_DIGITIZED))
-      nil)))
+  (try (some (fn [[directory tag]]
+               (when (= "Date/Time Original"
+                        (.getTagName tag))
+                 (.getDate directory (.getTagType tag))))
+             (for [directory (-> (File. photo-file-name)
+                                 (ImageMetadataReader/readMetadata)
+                                 (.getDirectories))
+                   tag (.getTags directory)]
+               [directory tag]))
+       (catch Exception e
+         nil)))
+
+(deftest test-photo-exif-date
+  (is (= #inst "2019-10-14T09:00:48.000-00:00"
+         (photo-exif-date "dev-resources/image.jpg"))))
 
 (defn photo-date [file-name]
-  (try (photo-exif-date file-name)
-       (catch Exception e
-         (file-creation-date file-name))))
+  (or (photo-exif-date file-name)
+      (file-creation-date file-name)))
 
 
 (deftype PhotoArchiver []
@@ -217,7 +226,7 @@
   (archiver-name [archiver] "photos")
 
   (accept-source-file [archiver file]
-    (#{"cr2" "nef" "jpg" "tif"} (.toLowerCase (extension (.getName file)))))
+    (#{"dng" "png" "cr2" "nef" "jpg" "tif"} (.toLowerCase (extension (.getName file)))))
 
   (target-file-name [archiver md5 temp-file-name]
     (file-name (photo-date temp-file-name)
@@ -343,7 +352,7 @@
 
 (comment
   (stop)
-  
+
   (println (source-directories))
 
   (.run (Thread. (fn []
@@ -355,20 +364,16 @@
   (start {:source-paths ["/Users/jukka/Downloads/source"]
           :archive-paths ["/Users/jukka/Downloads/target"]})
 
-
-
-  (photo-date "/Users/jukka/Pictures/DSC_0002.JPG")
   (file-last-modified-date "/Volumes/NEW VOLUME/DCIM/789CANON/IMG_8953.cr2")
   (file-last-modified-date "/Volumes/NEW VOLUME/DCIM/789CANON/IMG_8953.jpg")
 
   (with-out-str
     (run-command "exiftool" "-CreateDate" "/Users/jukka/Pictures/uudet_kuvat/100ANDRO/MOV_0006.mp4"))
-  
-  
+
   (.getImageMeta (ExifTool.)
                  (File. "/Users/jukka/Pictures/uudet_kuvat/100ANDRO/DSC_0244.JPG" #_"/Users/jukka/Pictures/uudet_kuvat/100ANDRO/MOV_0006.mp4")
                  (into-array [com.thebuzzmedia.exiftool.ExifTool$Tag/DATE_TIME_ORIGINAL]))
-  
+
   (command-line-ui)
   (stop)
 
