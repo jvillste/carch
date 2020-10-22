@@ -9,12 +9,11 @@
            [com.drew.imaging.jpeg JpegMetadataReader]
            [com.drew.metadata.exif ExifSubIFDDirectory]
            [java.nio.file.attribute BasicFileAttributes]
-           [java.nio.file Files Path LinkOption])
+           [java.nio.file Files Path Paths LinkOption])
 
   (:use clojure.test))
 
 
-(def file-progress (atom 0))
 (def running (atom true))
 (def log (atom ""))
 (def files-with-errors (atom []))
@@ -96,7 +95,8 @@
                   bytes)))
 
 (defn write-log [& message]
-  (swap! log (fn [old-log] (str old-log "\n" (apply str message)))))
+  (apply println message)
+  #_(swap! log (fn [old-log] (str old-log "\n" (apply str message)))))
 
 (def buffer (byte-array (* 1024 1024 20)))
 
@@ -106,9 +106,6 @@
       (loop [bytes-read (.read input-stream buffer)
              total-bytes-read bytes-read]
         (when (> bytes-read 0)
-          (reset! file-progress (int (* 100
-                                        (/ total-bytes-read
-                                           file-size))))
           (processor buffer bytes-read)
           (when @running
             (recur (.read input-stream buffer)
@@ -137,45 +134,44 @@
        "."
        new-extension))
 
+(defn md5 [file-name]
+  (let [message-digest (java.security.MessageDigest/getInstance "MD5")]
+    (process-file file-name
+                  (fn [buffer bytes-read]
+                    (.update message-digest buffer 0 bytes-read)))
+    (bytes-to-hex-string (.digest message-digest))))
+
+(defn file-length [file-name]
+  (.length (File. file-name)))
+
 (defn archive [archiver source-file-name archive-paths]
-  (let [message-digest (java.security.MessageDigest/getInstance "MD5")
-        temp-file-names (map #(append-paths % (str "archiver.temp." (extension source-file-name)))
-                             archive-paths)]
+  (let [md5 (md5 source-file-name)
+        source-length (file-length source-file-name)
+        target-file-names (for [archive-path archive-paths]
+                            (append-paths archive-path
+                                          (target-path archiver source-file-name)
+                                          (target-file-name archiver md5 source-file-name)))
+        target-exists #(and (.exists (File. %))
+                            (= (file-length %)
+                               source-length))]
+    (println (append-paths (target-path archiver source-file-name)
+                           (target-file-name archiver md5 source-file-name)))
+    (doseq [target-file-name (filter target-exists
+                                     target-file-names)]
+      (println source-file-name "already exists in" target-file-name))
 
-    (dorun (map delete-if-exists temp-file-names))
-
-    (let [output-streams (map clojure.java.io/output-stream temp-file-names)]
-      (try
-        (process-file source-file-name
-                      (fn [buffer bytes-read]
-                        (.update message-digest buffer 0 bytes-read)
-                        (dorun (pmap #(.write % buffer 0 bytes-read)
-                                     output-streams))))
-        (finally
-          (dorun (map #(.close %) output-streams)))))
-
-    (let [md5 (bytes-to-hex-string (.digest message-digest))]
-      (doseq [archive-path archive-paths]
-        (let [temp-file-name (append-paths archive-path (str "archiver.temp." (extension source-file-name)))]
-          (when @running
-            (do (.setLastModified (File. temp-file-name)
-                                  (.lastModified (File. source-file-name)))
-                (let [target-path (append-paths archive-path
-                                                (target-path archiver temp-file-name))
-                      target-file-name (append-paths target-path
-                                                     (target-file-name archiver md5 temp-file-name))
-                      aae-source-file-name (change-file-extension source-file-name "AAE")]
-
-                  (when (.exists (File. aae-source-file-name))
-                    (io/copy (io/file aae-source-file-name)
-                             (io/file (change-file-extension target-file-name "AAE"))))
-
-                  (if (.exists (File. target-file-name))
-                    (write-log "allready exists " target-file-name)
-                    (do (.mkdirs (File. target-path))
-                        (move-file temp-file-name
-                                   target-file-name))))))
-          (delete-if-exists temp-file-name))))))
+    (let [target-file-names (remove target-exists
+                                    target-file-names)]
+      (run! #(.mkdirs (File. (.getParent (File. %))))
+            target-file-names)
+      (let [output-streams (map clojure.java.io/output-stream target-file-names)]
+        (try
+          (process-file source-file-name
+                        (fn [buffer bytes-read]
+                          (dorun (pmap #(.write % buffer 0 bytes-read)
+                                       output-streams))))
+          (finally
+            (dorun (map #(.close %) output-streams))))))))
 
 (defn file-name [date md5 extension]
   (str (if date
@@ -199,15 +195,15 @@
 ;; PHOTOS
 
 (defn photo-exif-date [photo-file-name]
-  (try (some (fn [[directory tag]]
-               (when (= "Date/Time Original"
-                        (.getTagName tag))
-                 (.getDate directory (.getTagType tag))))
-             (for [directory (-> (File. photo-file-name)
-                                 (ImageMetadataReader/readMetadata)
-                                 (.getDirectories))
-                   tag (.getTags directory)]
-               [directory tag]))
+  (try (date-to-map (some (fn [[directory tag]]
+                            (when (= "Date/Time Original"
+                                     (.getTagName tag))
+                              (.getDate directory (.getTagType tag))))
+                          (for [directory (-> (File. photo-file-name)
+                                              (ImageMetadataReader/readMetadata)
+                                              (.getDirectories))
+                                tag (.getTags directory)]
+                            [directory tag])))
        (catch Exception e
          nil)))
 
@@ -218,6 +214,15 @@
 (defn photo-date [file-name]
   (or (photo-exif-date file-name)
       (file-creation-date file-name)))
+(comment
+  (Files/size (Paths/get "/Users/jukka/Pictures/uudet_kuvat/sirun iphone/IMG_0105.HEIC"))
+  (.length (File. "/Users/jukka/Pictures/uudet_kuvat/sirun iphone/IMG_0105.HEIC"))
+  (photo-date "/Users/jukka/Pictures/uudet_kuvat/sirun iphone/IMG_0105.HEIC")
+  (md5 "/Users/jukka/Pictures/uudet_kuvat/sirun iphone/IMG_8240.MOV")
+  (archive2 (->PhotoArchiver)
+            "/Users/jukka/Pictures/uudet_kuvat/sirun iphone/IMG_0105.HEIC"
+            ["/Users/jukka/Downloads/archive1" "/Users/jukka/Downloads/archive2"])
+  ) ;; TODO: remove-me
 
 
 (deftype PhotoArchiver []
@@ -226,15 +231,15 @@
   (archiver-name [archiver] "photos")
 
   (accept-source-file [archiver file]
-    (#{"dng" "png" "cr2" "nef" "jpg" "tif"} (.toLowerCase (extension (.getName file)))))
+    (#{"dng" "png" "cr2" "nef" "jpg" "tif" "heic"} (.toLowerCase (extension (.getName file)))))
 
-  (target-file-name [archiver md5 temp-file-name]
-    (file-name (photo-date temp-file-name)
+  (target-file-name [archiver md5 source-file-name]
+    (file-name (photo-date source-file-name)
                md5
-               (extension temp-file-name)))
+               (extension source-file-name)))
 
-  (target-path [archiver temp-file-name]
-    (-> temp-file-name
+  (target-path [archiver source-file-name]
+    (-> source-file-name
         photo-date
         target-path-by-date)))
 
@@ -258,11 +263,11 @@
   (accept-source-file [archiver file]
     (#{"avi" "mov" "mp4" "mpg" "wmv"} (.toLowerCase (extension (.getName file)))))
 
-  (target-file-name [archiver md5 temp-file-name]
-    (file-name (get-video-date temp-file-name) md5 (extension temp-file-name)))
+  (target-file-name [archiver md5 source-file-name]
+    (file-name (get-video-date source-file-name) md5 (extension source-file-name)))
 
-  (target-path [archiver temp-file-name]
-    (-> temp-file-name
+  (target-path [archiver source-file-name]
+    (-> source-file-name
         get-video-date
         target-path-by-date)))
 
@@ -337,12 +342,6 @@
                     0)
              (println log-contents))
            ""))
-  (swap! file-progress
-         (fn [value]
-           (when (> value 0)
-             (do (print value "%  \r")
-                 (flush)))
-           -1))
   (Thread/sleep 1000)
   (if @running
     (recur)
@@ -355,10 +354,10 @@
 
   (println (source-directories))
 
-  (.run (Thread. (fn []
-                   (start {:source-paths ["/Users/jukka/Google Drive/gfx/juw/kuvia2" "/Users/jukka/Google Drive/gfx/juw/kuvia"]
+  (start {:source-paths ["/Users/jukka/Pictures/uudet_kuvat/tikku"]
 
-                           :archive-paths ["/Volumes/Backup 2 1/kuva-arkisto" "/Volumes/Backup 2 2/kuva-arkisto"]}))))
+          :archive-paths ["/Users/jukka/Downloads/archive1"
+                          "/Users/jukka/Downloads/archive2"]})
 
 
   (start {:source-paths ["/Users/jukka/Downloads/source"]
