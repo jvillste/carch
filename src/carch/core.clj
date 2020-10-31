@@ -2,7 +2,8 @@
   (:require [carch.common :as common]
             [carch.exiftool :as exiftool]
             [clojure.java.shell :as shell]
-            [clojure.java.io :as io])
+            [clojure.java.io :as io]
+            [carch.resize :as resize])
   (:import [java.io File]
            [java.util Calendar Date]
            [com.drew.imaging ImageMetadataReader]
@@ -22,7 +23,8 @@
   (archiver-name [archiver])
   (accept-source-file [archiver file])
   (target-file-name [archiver md5 temp-file])
-  (target-path [archiver temp-file-name]))
+  (target-path [archiver temp-file-name])
+  (copy-file [archiver source-file-name target-file-names]))
 
 (defn date-to-map [date]
   (let [calendar (Calendar/getInstance)]
@@ -144,6 +146,20 @@
 (defn file-length [file-name]
   (.length (File. file-name)))
 
+(defn- copy-file-with-streams [source-file-name target-file-names]
+  (let [output-streams (map clojure.java.io/output-stream target-file-names)]
+    (try
+      (process-file source-file-name
+                    (fn [buffer bytes-read]
+                      (dorun (pmap #(.write % buffer 0 bytes-read)
+                                   output-streams))))
+      (finally
+        (dorun (map #(.close %) output-streams))))))
+
+(defn- resize-file [source-file-name target-file-names]
+  (doseq [target-file-name target-file-names]
+    (resize/resize-file source-file-name target-file-name)))
+
 (defn archive [archiver source-file-name archive-paths]
   (let [md5 (md5 source-file-name)
         source-length (file-length source-file-name)
@@ -164,14 +180,7 @@
                                     target-file-names)]
       (run! #(.mkdirs (File. (.getParent (File. %))))
             target-file-names)
-      (let [output-streams (map clojure.java.io/output-stream target-file-names)]
-        (try
-          (process-file source-file-name
-                        (fn [buffer bytes-read]
-                          (dorun (pmap #(.write % buffer 0 bytes-read)
-                                       output-streams))))
-          (finally
-            (dorun (map #(.close %) output-streams))))))))
+      (copy-file archiver source-file-name target-file-names))))
 
 (defn file-name [date md5 extension]
   (str (if date
@@ -241,8 +250,32 @@
   (target-path [archiver source-file-name]
     (-> source-file-name
         photo-date
-        target-path-by-date)))
+        target-path-by-date))
 
+  (copy-file [archiver source-file-name target-file-names]
+    (copy-file-with-streams source-file-name target-file-names)))
+
+
+(deftype ResizingPhotoArchiver []
+  Archiver
+
+  (archiver-name [archiver] "resized photos")
+
+  (accept-source-file [archiver file]
+    (#{"dng" "png" "cr2" "nef" "jpg" "tif" "heic"} (.toLowerCase (extension (.getName file)))))
+
+  (target-file-name [archiver md5 source-file-name]
+    (file-name (photo-date source-file-name)
+               md5
+               (str (extension source-file-name) "-small.jpg")))
+
+  (target-path [archiver source-file-name]
+    (-> source-file-name
+        photo-date
+        target-path-by-date))
+
+  (copy-file [archiver source-file-name target-file-names]
+    (resize-file source-file-name target-file-names)))
 
 ;; VIDEOS
 
@@ -269,7 +302,10 @@
   (target-path [archiver source-file-name]
     (-> source-file-name
         get-video-date
-        target-path-by-date)))
+        target-path-by-date))
+
+  (copy-file [archiver source-file-name target-file-names]
+    (copy-file-with-streams source-file-name target-file-names)))
 
 
 ;; UI
@@ -291,14 +327,13 @@
                   "foo2"])
          "/foo : 0 photos 0 videos\nfoo2 : 0 photos 0 videos\n")))
 
-(defn start [{:keys [source-paths archive-paths]}]
+(defn start [{:keys [source-paths archive-paths]} archivers]
   (doseq  [archive-path archive-paths]
     (when (not (.exists (File. archive-path)))
       (throw (Exception. (str "The archive path " archive-path " does not exist.")))))
 
   (reset! running true)
-  (try (let [archivers [(->PhotoArchiver) (->VideoArchiver)]
-             source-paths (or source-paths
+  (try (let [source-paths (or source-paths
                               (source-directories))]
          (write-log "Archiving from " (vec source-paths) " to " (vec archive-paths))
 
@@ -354,14 +389,15 @@
 
   (println (source-directories))
 
-  (start {:source-paths ["/Users/jukka/Pictures/uudet_kuvat/tikku"]
+  (start {:source-paths ["/Users/jukka/Downloads/test-photos"]
 
-          :archive-paths ["/Users/jukka/Downloads/archive1"
-                          "/Users/jukka/Downloads/archive2"]})
+          :archive-paths ["/Users/jukka/Downloads/test-small-archive"]}
+         [(->ResizingPhotoArchiver)])
 
 
   (start {:source-paths ["/Users/jukka/Downloads/source"]
-          :archive-paths ["/Users/jukka/Downloads/target"]})
+          :archive-paths ["/Users/jukka/Downloads/target"]}
+         [(->PhotoArchiver) (->VideoArchiver)])
 
   (file-last-modified-date "/Volumes/NEW VOLUME/DCIM/789CANON/IMG_8953.cr2")
   (file-last-modified-date "/Volumes/NEW VOLUME/DCIM/789CANON/IMG_8953.jpg")
