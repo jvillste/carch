@@ -2,15 +2,24 @@
   (:require [carch.core :as core])
   (:gen-class))
 
-(defn copy [paths-file-name]
-  (core/start (read-string (slurp paths-file-name))
+(defn copy [paths-string]
+  (core/start (read-string paths-string)
               [(core/->PhotoArchiver) (core/->VideoArchiver)]))
 
-(defn resize [paths-file-name]
-  (core/start (read-string (slurp paths-file-name))
+(defn copy-photos [paths-string]
+  (core/start (read-string paths-string)
+              [(core/->PhotoArchiver)]))
+
+(defn copy-with-config-file [paths-file-name]
+  (copy (slurp paths-file-name)))
+
+(defn resize [paths-string]
+  (core/start (read-string paths-string)
               [(core/->ResizingPhotoArchiver)]))
 
 (def commands [#'copy
+               #'copy-photos
+               #'copy-with-config-file
                #'resize])
 
 (defn find-command [command-name commands]
