@@ -1,5 +1,4 @@
 (ns carch.common
-  (:require [carch.common :as common])
   (:import [java.io File]))
 
 (defn files-in-directory [directory-path]

@@ -6,10 +6,10 @@
 (defn run-command [& args]
   (let [result (apply shell/sh args)]
     (println (:out result))
-    
+
     (when (not= 0 (:exit result))
       (throw (Exception. (:err result))))
-    
+
     (when (not= "" (:err result))
       (println "ERROR: " (:err result)))))
 
@@ -54,7 +54,7 @@
 (run-tests)
 
 (comment
-  
+
   (get-tag "/Users/jukka/Downloads/IMG_0095.MOV" "CreateDate")
   (println (get-tag "/Users/jukka/Pictures/uudet_kuvat/100ANDRO/MOV_0006.mp4" "CreateDate"))
   (println (get-date "/Users/jukka/Downloads/temp/video/2016/2016-05-07/2016-04-03.13.52.21_7504ba4430f91de6b8f9450d44dfb32a.mp4"))

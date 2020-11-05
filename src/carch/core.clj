@@ -10,7 +10,9 @@
            [com.drew.imaging.jpeg JpegMetadataReader]
            [com.drew.metadata.exif ExifSubIFDDirectory]
            [java.nio.file.attribute BasicFileAttributes]
-           [java.nio.file Files Path Paths LinkOption])
+           [java.nio.file Files Path Paths LinkOption]
+           sun.misc.Signal
+           sun.misc.SignalHandler)
 
   (:use clojure.test))
 
@@ -24,7 +26,8 @@
   (accept-source-file [archiver file])
   (target-file-name [archiver md5 temp-file])
   (target-path [archiver temp-file-name])
-  (copy-file [archiver source-file-name target-file-names]))
+  (copy-file [archiver source-file-name target-file-names])
+  (compare-file-sizes? [archiver]))
 
 (defn date-to-map [date]
   (let [calendar (Calendar/getInstance)]
@@ -103,15 +106,19 @@
 (def buffer (byte-array (* 1024 1024 20)))
 
 (defn process-file [source-file-name processor]
-  (let [file-size (.length (File. source-file-name))]
-    (with-open [input-stream (clojure.java.io/input-stream source-file-name)]
-      (loop [bytes-read (.read input-stream buffer)
-             total-bytes-read bytes-read]
-        (when (> bytes-read 0)
-          (processor buffer bytes-read)
-          (when @running
-            (recur (.read input-stream buffer)
-                   (+ total-bytes-read bytes-read))))))))
+  (try (let [file-size (.length (File. source-file-name))]
+         (with-open [input-stream (clojure.java.io/input-stream source-file-name)]
+           (try
+             (loop [bytes-read (.read input-stream buffer)
+                    total-bytes-read bytes-read]
+               (when (> bytes-read 0)
+                 (processor buffer bytes-read)
+                 (when @running
+                   (recur (.read input-stream buffer)
+                          (+ total-bytes-read bytes-read)))))
+             (catch Throwable e
+               (println "exception during file processing " e)
+               (throw e)))))))
 
 (defn move-file [source-file-name target-file-name]
   (.renameTo (File. source-file-name)
@@ -168,10 +175,11 @@
                                           (target-path archiver source-file-name)
                                           (target-file-name archiver md5 source-file-name)))
         target-exists #(and (.exists (File. %))
-                            (= (file-length %)
-                               source-length))]
-    (println (append-paths (target-path archiver source-file-name)
-                           (target-file-name archiver md5 source-file-name)))
+                            (or (not (compare-file-sizes? archiver))
+                                (= (file-length %)
+                                   source-length)))]
+    (println "copying to" (append-paths (target-path archiver source-file-name)
+                                        (target-file-name archiver md5 source-file-name)))
     (doseq [target-file-name (filter target-exists
                                      target-file-names)]
       (println source-file-name "already exists in" target-file-name))
@@ -253,7 +261,9 @@
         target-path-by-date))
 
   (copy-file [archiver source-file-name target-file-names]
-    (copy-file-with-streams source-file-name target-file-names)))
+    (copy-file-with-streams source-file-name target-file-names))
+
+  (compare-file-sizes? [archiver] true))
 
 
 (deftype ResizingPhotoArchiver []
@@ -275,7 +285,9 @@
         target-path-by-date))
 
   (copy-file [archiver source-file-name target-file-names]
-    (resize-file source-file-name target-file-names)))
+    (resize-file source-file-name target-file-names))
+
+  (compare-file-sizes? [archiver] false))
 
 ;; VIDEOS
 
@@ -305,7 +317,9 @@
         target-path-by-date))
 
   (copy-file [archiver source-file-name target-file-names]
-    (copy-file-with-streams source-file-name target-file-names)))
+    (copy-file-with-streams source-file-name target-file-names))
+
+  (compare-file-sizes? [archiver] true))
 
 
 ;; UI
@@ -327,45 +341,73 @@
                   "foo2"])
          "/foo : 0 photos 0 videos\nfoo2 : 0 photos 0 videos\n")))
 
+(comment
+  (let [lock-object (Object.)]
+    (.start (Thread. (locking lock-object
+                       (Thread/sleep 1000))))
+    (locking lock-object)
+    :ready)
+  ) ;; TODO: remove-me
+
+
 (defn start [{:keys [source-paths archive-paths]} archivers]
-  (doseq  [archive-path archive-paths]
-    (when (not (.exists (File. archive-path)))
-      (throw (Exception. (str "The archive path " archive-path " does not exist.")))))
 
-  (reset! running true)
-  (try (let [source-paths (or source-paths
-                              (source-directories))]
-         (write-log "Archiving from " (vec source-paths) " to " (vec archive-paths))
+  (let [copy-lock (Object.)]
+    #_(Signal/handle (Signal. "HUP")
+                   (proxy [SignalHandler] []
+                     (handle [sig]
+                       (println "stopping copying")
+                       (reset! running false)
+                       (locking copy-lock)
+                       (println "exiting")
+                       (System/exit 0))))
 
-         (write-log (counts archivers source-paths))
+    (.addShutdownHook (Runtime/getRuntime)
+                      (Thread. (fn []
+                                 (println "stopping copying")
+                                 (reset! running false)
+                                 (locking copy-lock
+                                   (println "exiting")))))
 
-         (doseq [archiver archivers
-                 source-path source-paths]
-           (write-log "********* Archiving " (count (files-for-archiver archiver source-path)) " "(archiver-name archiver) " from " source-path " *********")
-           (let [files (files-for-archiver archiver source-path)
-                 file-count (count files)]
-             (loop [files files
-                    index 1]
-               (when (seq files)
-                 (write-log "Archiving file " index "/" file-count " " (.getPath (first files)))
-                 (try (archive archiver (.getPath (first files)) archive-paths)
-                      (catch Exception exception
-                        (swap! files-with-errors conj (.getPath (first files)))
-                        (write-log "ERROR in archiving file " (.getPath (first files)) " : " (.getMessage exception))
-                        (write-log (stack-trace exception))))
+    (doseq  [archive-path archive-paths]
+      (when (not (.exists (File. archive-path)))
+        (throw (Exception. (str "The archive path " archive-path " does not exist.")))))
 
-                 (when @running
-                   (recur (rest files) (inc index)))))))
+    (reset! running true)
+    (try (let [source-paths (or source-paths
+                                (source-directories))]
+           (write-log "Archiving from " (vec source-paths) " to " (vec archive-paths))
 
-         (if @running
-           (write-log "Archiving ready.")
-           (write-log "Archiving stopped by the user."))
-         (write-log (count @files-with-errors) "files had errors:")
-         (doseq [file-name @files-with-errors]
-           (write-log file-name)))
-       (catch Exception exception
-         (write-log "ERROR in archiving: " (.getMessage exception))
-         (write-log (stack-trace exception)))))
+           (write-log (counts archivers source-paths))
+
+           (doseq [archiver archivers
+                   source-path source-paths]
+             (write-log "********* Archiving " (count (files-for-archiver archiver source-path)) " "(archiver-name archiver) " from " source-path " *********")
+             (let [files (files-for-archiver archiver source-path)
+                   file-count (count files)]
+               (loop [files files
+                      index 1]
+                 (when (seq files)
+                   (locking copy-lock
+                     (write-log "Archiving file " index "/" file-count " " (.getPath (first files)))
+                     (try (archive archiver (.getPath (first files)) archive-paths)
+                          (catch Exception exception
+                            (swap! files-with-errors conj (.getPath (first files)))
+                            (write-log "ERROR in archiving file " (.getPath (first files)) " : " (.getMessage exception))
+                            (write-log (stack-trace exception)))))
+
+                   (when @running
+                     (recur (rest files) (inc index)))))))
+
+           (if @running
+             (write-log "Archiving ready.")
+             (write-log "Archiving stopped by the user."))
+           (write-log (count @files-with-errors) "files had errors:")
+           (doseq [file-name @files-with-errors]
+             (write-log file-name)))
+         (catch Exception exception
+           (write-log "ERROR in archiving: " (.getMessage exception))
+           (write-log (stack-trace exception))))))
 
 (defn stop []
   (reset! running false))
