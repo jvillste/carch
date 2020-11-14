@@ -51,8 +51,6 @@
   (parse-date (get-tag file-name "CreateDate")))
 
 
-(run-tests)
-
 (comment
 
   (get-tag "/Users/jukka/Downloads/IMG_0095.MOV" "CreateDate")

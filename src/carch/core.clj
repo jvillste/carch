@@ -13,7 +13,6 @@
            [java.nio.file Files Path Paths LinkOption]
            sun.misc.Signal
            sun.misc.SignalHandler)
-
   (:use clojure.test))
 
 
@@ -222,6 +221,7 @@
                                 tag (.getTags directory)]
                             [directory tag])))
        (catch Exception e
+         (println "WARNING: could not get exif date from " photo-file-name)
          nil)))
 
 (deftest test-photo-exif-date
@@ -231,10 +231,18 @@
 (defn photo-date [file-name]
   (or (photo-exif-date file-name)
       (file-creation-date file-name)))
+
 (comment
-  (Files/size (Paths/get "/Users/jukka/Pictures/uudet_kuvat/sirun iphone/IMG_0105.HEIC"))
-  (.length (File. "/Users/jukka/Pictures/uudet_kuvat/sirun iphone/IMG_0105.HEIC"))
-  (photo-date "/Users/jukka/Pictures/uudet_kuvat/sirun iphone/IMG_0105.HEIC")
+  (->> (common/files-in-directory #_"/Users/jukka/Pictures/pienet-kuvat/2020/2020-10-22"
+                                  "/Volumes/Backup_3_1/kuva-arkisto/2020"
+                                  #_"/Volumes/Backup_3_1/kuva-arkisto/2020/2020-10-21")
+       (filter (fn [file]
+                 (.contains (.toLowerCase (.getName file))
+                            "633c37588f8200a4ceaa7fa63b942a5e")
+                 #_(= "heic" (.toLowerCase (extension (.getName file))))))
+       (map (fn [file]
+              (photo-exif-date (.getPath file))))
+       (first))
   (md5 "/Users/jukka/Pictures/uudet_kuvat/sirun iphone/IMG_8240.MOV")
   (archive2 (->PhotoArchiver)
             "/Users/jukka/Pictures/uudet_kuvat/sirun iphone/IMG_0105.HEIC"
@@ -440,6 +448,13 @@
   (start {:source-paths ["/Users/jukka/Downloads/source"]
           :archive-paths ["/Users/jukka/Downloads/target"]}
          [(->PhotoArchiver) (->VideoArchiver)])
+
+  (start {:source-paths ["/Users/jukka/Downloads/heicit"]
+          #_["/Volumes/Backup_3_1/kuva-arkisto/2020/2020-10-21" "/Volumes/Backup_3_1/kuva-arkisto/2020"]
+          :archive-paths ["/Volumes/backup/kuva-arkisto"
+                          "/Volumes/backup2/kuva-arkisto"
+                          "/Volumes/Backup_3_1/kuva-arkisto"]}
+         [(->PhotoArchiver)])
 
   (file-last-modified-date "/Volumes/NEW VOLUME/DCIM/789CANON/IMG_8953.cr2")
   (file-last-modified-date "/Volumes/NEW VOLUME/DCIM/789CANON/IMG_8953.jpg")
