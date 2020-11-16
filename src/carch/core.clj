@@ -3,7 +3,9 @@
             [carch.exiftool :as exiftool]
             [clojure.java.shell :as shell]
             [clojure.java.io :as io]
-            [carch.resize :as resize])
+            [carch.resize :as resize]
+            [clj-time.core :as clj-time]
+            [clj-time.coerce :as coerce])
   (:import [java.io File]
            [java.util Calendar Date]
            [com.drew.imaging ImageMetadataReader]
@@ -29,14 +31,17 @@
   (compare-file-sizes? [archiver]))
 
 (defn date-to-map [date]
-  (let [calendar (Calendar/getInstance)]
-    (.setTime calendar date)
-    {:year (.get calendar Calendar/YEAR)
-     :month (+ 1 (.get calendar Calendar/MONTH))
-     :day (.get calendar Calendar/DAY_OF_MONTH)
-     :hour (.get calendar Calendar/HOUR_OF_DAY)
-     :minute (.get calendar Calendar/MINUTE)
-     :second (.get calendar Calendar/SECOND)}))
+  (let [date (coerce/from-date date)]
+    {:year (clj-time/year date)
+     :month (clj-time/month date)
+     :day (clj-time/day date) #_ (.get calendar Calendar/DAY_OF_MONTH)
+     :hour (clj-time/hour date)
+     :minute (clj-time/minute date)
+     :second (clj-time/second date)}))
+
+(deftest test-date-to-map
+  (is (= {:year 2020, :month 7, :day 8, :hour 21, :minute 5, :second 24}
+         (date-to-map #inst "2020-07-08T21:05:24.000-00:00"))))
 
 (defn operating-system []
   (case (System/getProperty "os.name")
@@ -211,44 +216,32 @@
 ;; PHOTOS
 
 (defn photo-exif-date [photo-file-name]
-  (try (date-to-map (some (fn [[directory tag]]
-                            (when (= "Date/Time Original"
-                                     (.getTagName tag))
-                              (.getDate directory (.getTagType tag))))
-                          (for [directory (-> (File. photo-file-name)
-                                              (ImageMetadataReader/readMetadata)
-                                              (.getDirectories))
-                                tag (.getTags directory)]
-                            [directory tag])))
-       (catch Exception e
-         (println "WARNING: could not get exif date from " photo-file-name)
-         nil)))
+  (some (fn [[directory tag]]
+          (when (= "Date/Time Original"
+                   (.getTagName tag))
+            (.getDate directory (.getTagType tag))))
+        (for [directory (-> (File. photo-file-name)
+                            (ImageMetadataReader/readMetadata)
+                            (.getDirectories))
+              tag (.getTags directory)]
+          [directory tag])))
+(comment
+  (photo-exif-date "/Volumes/Backup_3_1/kuva-arkisto/2020/2020-07-30/2020-07-30.16.57.04_32e0ff3afef390fc74668abde371f3d5.HEIC")
+  ) ;; TODO: remove-me
 
 (deftest test-photo-exif-date
   (is (= #inst "2019-10-14T09:00:48.000-00:00"
          (photo-exif-date "dev-resources/image.jpg"))))
 
+(defn photo-exif-datemap [photo-file-name]
+  (try (date-to-map (photo-exif-date photo-file-name))
+       (catch Exception e
+         (println "WARNING: could not get exif date from " photo-file-name)
+         nil)))
+
 (defn photo-date [file-name]
-  (or (photo-exif-date file-name)
+  (or (photo-exif-datemap file-name)
       (file-creation-date file-name)))
-
-(comment
-  (->> (common/files-in-directory #_"/Users/jukka/Pictures/pienet-kuvat/2020/2020-10-22"
-                                  "/Volumes/Backup_3_1/kuva-arkisto/2020"
-                                  #_"/Volumes/Backup_3_1/kuva-arkisto/2020/2020-10-21")
-       (filter (fn [file]
-                 (.contains (.toLowerCase (.getName file))
-                            "633c37588f8200a4ceaa7fa63b942a5e")
-                 #_(= "heic" (.toLowerCase (extension (.getName file))))))
-       (map (fn [file]
-              (photo-exif-date (.getPath file))))
-       (first))
-  (md5 "/Users/jukka/Pictures/uudet_kuvat/sirun iphone/IMG_8240.MOV")
-  (archive2 (->PhotoArchiver)
-            "/Users/jukka/Pictures/uudet_kuvat/sirun iphone/IMG_0105.HEIC"
-            ["/Users/jukka/Downloads/archive1" "/Users/jukka/Downloads/archive2"])
-  ) ;; TODO: remove-me
-
 
 (deftype PhotoArchiver []
   Archiver
@@ -273,6 +266,61 @@
 
   (compare-file-sizes? [archiver] true))
 
+(defn date-from-file-name [file-name]
+  (let [[year month day hour minute second] (rest (re-matches #"(\d\d\d\d)-(\d\d)-(\d\d)\.(\d\d)\.(\d\d)\.(\d\d).*"
+                                                              file-name))]
+    (when (and year month day hour minute second)
+     {:year (Integer/parseInt year)
+      :month (Integer/parseInt month)
+      :day (Integer/parseInt day)
+      :hour (Integer/parseInt hour)
+      :minute (Integer/parseInt minute)
+      :second (Integer/parseInt second)})))
+
+(deftest test-date-from-file-name
+  (is (= {:year 2020, :month 8, :day 25, :hour 14, :minute 51, :second 7}
+         (date-from-file-name "2020-08-25.14.51.07_d504c307052c6edff89294be1c4140b3.HEIC")))
+
+  (is (= nil
+         (date-from-file-name "/foo/2020-08-25.14.51.07_d504c307052c6edff89294be1c4140b3.HEIC"))))
+
+(defn date-is-wrong? [file]
+  (and (= "heic"
+          (.toLowerCase (extension (.getName file))))
+       (not (= (date-from-file-name (.getName file))
+               (photo-date (.getPath file))))))
+
+(deftype WrongDatePhotoArchiver []
+  Archiver
+
+  (archiver-name [archiver] "photos")
+
+  (accept-source-file [archiver file]
+    (date-is-wrong? file))
+
+  (target-file-name [archiver md5 source-file-name]
+    (file-name (date-from-file-name (.getName (File. source-file-name)))
+               md5
+               (extension source-file-name)))
+
+  (target-path [archiver source-file-name]
+    (-> source-file-name
+        photo-date
+        target-path-by-date))
+
+  (copy-file [archiver source-file-name target-file-names]
+    (copy-file-with-streams source-file-name target-file-names))
+
+  (compare-file-sizes? [archiver] true))
+
+(comment
+  "/Users/jukka/Documents/wrong-date-photos"
+
+  ) ;; TODO: remove-me
+
+(defn resized-file-date [source-file-path]
+  (or (date-from-file-name (.getName (File. source-file-path)))
+      (photo-date source-file-path)))
 
 (deftype ResizingPhotoArchiver []
   Archiver
@@ -280,7 +328,8 @@
   (archiver-name [archiver] "resized photos")
 
   (accept-source-file [archiver file]
-    (#{"dng" "png" "cr2" "nef" "jpg" "tif" "heic"} (.toLowerCase (extension (.getName file)))))
+    (#{;;"dng" "png" "cr2" "nef" "jpg" "tif"
+       "heic"} (.toLowerCase (extension (.getName file)))))
 
   (target-file-name [archiver md5 source-file-name]
     (file-name (photo-date source-file-name)
@@ -362,13 +411,13 @@
 
   (let [copy-lock (Object.)]
     #_(Signal/handle (Signal. "HUP")
-                   (proxy [SignalHandler] []
-                     (handle [sig]
-                       (println "stopping copying")
-                       (reset! running false)
-                       (locking copy-lock)
-                       (println "exiting")
-                       (System/exit 0))))
+                     (proxy [SignalHandler] []
+                       (handle [sig]
+                         (println "stopping copying")
+                         (reset! running false)
+                         (locking copy-lock)
+                         (println "exiting")
+                         (System/exit 0))))
 
     (.addShutdownHook (Runtime/getRuntime)
                       (Thread. (fn []
@@ -433,15 +482,117 @@
     (do (println @log)
         (println "stopped"))))
 
+(defn process! [reducible & transducers]
+  (transduce (apply comp transducers)
+             (constantly nil)
+             reducible))
+
+(deftest test-process
+  (let [result-atom (atom [])]
+    (process! (range 10)
+              (take 6)
+              (filter even?)
+              (map #(swap! result-atom conj %)))
+    (is (= [0 2 4] @result-atom))))
+
+(defonce count-atom (atom 0))
 
 (comment
+
+  (do (println "starting")
+      (reset! count-atom 0)
+      (let [archive-root "/Users/jukka/Pictures/pienet-kuvat/"]
+        (process! (common/file-reducible (str archive-root "/2020"))
+                  (filter (fn [file]
+                            (and (.endsWith (.toLowerCase (.getName file))
+                                            "heic-small.jpg"))))
+                  #_(take 10)
+                  (map (fn [file]
+                         (swap! count-atom inc)
+                         (println (.getPath file))
+                         (.delete (File. (.getPath file)))))))
+      (println "done"))
+
+
+
+  (def deletion-future (future (do (println "starting")
+                                   (reset! count-atom 0)
+                                   (let [wrong-date-photo-archiver (->WrongDatePhotoArchiver)
+                                         photo-archiver (->PhotoArchiver)
+                                         archive-root "/Volumes/backup2/kuva-arkisto/"]
+                                     (process! (common/file-reducible (str archive-root "/2020"))
+                                               (filter (fn [file]
+                                                         (and (= "heic"
+                                                                 (.toLowerCase (extension (.getName file))))
+                                                              (not (= (date-from-file-name (.getName file))
+                                                                      (photo-date (.getPath file)))))))
+                                               #_(take 10)
+                                               (map (fn [file]
+                                                      (swap! count-atom inc)
+                                                      (let [md5-hash (md5 (.getPath file))
+                                                            path (.getPath file)
+                                                            right-date-archive-file-name (str archive-root
+                                                                                              (target-path photo-archiver
+                                                                                                           (.getPath file))
+                                                                                              "/"
+                                                                                              (target-file-name photo-archiver
+                                                                                                                md5-hash
+                                                                                                                (.getPath file)))
+                                                            wrong-date-archive-file-name (str "/Users/jukka/Documents/wrong-date-photos/"
+                                                                                              (target-path wrong-date-photo-archiver
+                                                                                                           (.getPath file))
+                                                                                              "/"
+                                                                                              (target-file-name wrong-date-photo-archiver
+                                                                                                                md5-hash
+                                                                                                                (.getPath file)))]
+                                                        (println "has wrong date:")
+                                                        (println path)
+                                                        (println right-date-archive-file-name)
+                                                        (println wrong-date-archive-file-name)
+                                                        (println (.exists (File. wrong-date-archive-file-name))
+                                                                 (.exists (File. right-date-archive-file-name)))
+                                                        (when (and (.exists (File. wrong-date-archive-file-name))
+                                                                   (.exists (File. right-date-archive-file-name)))
+                                                          (println "deleting")
+                                                          (.delete (File. path))))))))
+                                   (println "done"))
+
+                               ))
+
+  (count (common/files-in-directory #_"/Users/jukka/Pictures/pienet-kuvat/2020/2020-10-22"
+                                    #_"/Volumes/Backup_3_1/kuva-arkisto/2020/2020-04-27"
+                                    #_"/Volumes/Backup_3_1/kuva-arkisto/2020"
+                                    "/Volumes/backup/kuva-arkisto/2020"
+                                    #_"/Users/jukka/Pictures/pienet-kuvat/2020/2020-10-22"
+                                    #_"/Volumes/Backup_3_1/kuva-arkisto/2020/2020-10-21"))
+  @count-atom
+  (realized? deletion-future)
+  (future-cancelled? deletion-future)
+  (future-cancel deletion-future)
+
+  (.delete (File. "/Users/jukka/Downloads/image001.png"))
+  (->> (common/files-in-directory "/Volumes/Backup_3_1/kuva-arkisto/2020")
+       (filter (fn [file]
+                 (.contains (.toLowerCase (.getName file))
+                            "051ad1c176a378dcf618232c97844764")))
+       (map (fn [file]
+              (.getPath file)))
+       (first))
+
+
+  (photo-exif-datemap "/Users/jukka/Pictures/pienet-kuvat/2020/2020-10-22/2020-10-22.00.30.51_051ad1c176a378dcf618232c97844764.JPG-small.jpg")
+  (md5 "/Users/jukka/Pictures/uudet_kuvat/sirun iphone/IMG_8240.MOV")
+  (archive2 (->PhotoArchiver)
+            "/Users/jukka/Pictures/uudet_kuvat/sirun iphone/IMG_0105.HEIC"
+            ["/Users/jukka/Downloads/archive1" "/Users/jukka/Downloads/archive2"])
+
   (stop)
 
   (println (source-directories))
 
-  (start {:source-paths ["/Users/jukka/Downloads/test-photos"]
+  (start {:source-paths ["/Volumes/Backup_3_1/kuva-arkisto/2020"]
 
-          :archive-paths ["/Users/jukka/Downloads/test-small-archive"]}
+          :archive-paths ["/Users/jukka/Pictures/pienet-kuvat"]}
          [(->ResizingPhotoArchiver)])
 
 
@@ -449,12 +600,19 @@
           :archive-paths ["/Users/jukka/Downloads/target"]}
          [(->PhotoArchiver) (->VideoArchiver)])
 
-  (start {:source-paths ["/Users/jukka/Downloads/heicit"]
+  (start {:source-paths [#_"/Volumes/Backup_3_1/kuva-arkisto/2020/2020-04-27"
+                         "/Volumes/Backup_3_1/kuva-arkisto/2020"]
           #_["/Volumes/Backup_3_1/kuva-arkisto/2020/2020-10-21" "/Volumes/Backup_3_1/kuva-arkisto/2020"]
-          :archive-paths ["/Volumes/backup/kuva-arkisto"
-                          "/Volumes/backup2/kuva-arkisto"
-                          "/Volumes/Backup_3_1/kuva-arkisto"]}
-         [(->PhotoArchiver)])
+          :archive-paths ["/Users/jukka/Documents/wrong-date-photos"]}
+         [(->WrongDatePhotoArchiver)])
+
+  (pr-str {:source-paths ["/Users/jukka/Downloads/heicit"]
+           #_["/Volumes/Backup_3_1/kuva-arkisto/2020/2020-10-21" "/Volumes/Backup_3_1/kuva-arkisto/2020"]
+           :archive-paths ["/Volumes/backup/kuva-arkisto"
+                           "/Volumes/backup2/kuva-arkisto"
+                           "/Volumes/Backup_3_1/kuva-arkisto"]})
+
+  ;;  java -jar ~/bin/carch-1.0.0-SNAPSHOT-standalone.jar copy "{:source-paths [\"/Users/jukka/Downloads/heicit\"], :archive-paths [\"/Volumes/backup/kuva-arkisto\" \"/Volumes/backup2/kuva-arkisto\" \"/Volumes/Backup_3_1/kuva-arkisto\"]}"
 
   (file-last-modified-date "/Volumes/NEW VOLUME/DCIM/789CANON/IMG_8953.cr2")
   (file-last-modified-date "/Volumes/NEW VOLUME/DCIM/789CANON/IMG_8953.jpg")
