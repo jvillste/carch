@@ -328,8 +328,7 @@
   (archiver-name [archiver] "resized photos")
 
   (accept-source-file [archiver file]
-    (#{;;"dng" "png" "cr2" "nef" "jpg" "tif"
-       "heic"} (.toLowerCase (extension (.getName file)))))
+    (#{"dng" "png" "cr2" "nef" "jpg" "tif" "heic"} (.toLowerCase (extension (.getName file)))))
 
   (target-file-name [archiver md5 source-file-name]
     (file-name (photo-date source-file-name)
