@@ -13,7 +13,8 @@
     (str target-dir relative-path)))
 
 (defn resize-file [source-path target-path]
-  (shell/sh "convert" "-quality" "50" "-resize" "2000x2000" source-path target-path))
+  #_(shell/sh "convert" "-quality" "50" "-resize" "2000x2000" source-path target-path)
+  (shell/sh "sips" "-s" "format" "jpeg" "-s" "formatOptions" "20" "-Z" "2000" source-path "--out" target-path))
 
 (defn resize [source-dir target-dir]
   (doseq [source-path (->> (common/files-in-directory source-dir)
@@ -31,7 +32,7 @@
             )))))
 
 (comment
-  (resize-file "/Users/jukka/Pictures/uudet_kuvat/DCIM1/100CANON/_MG_2053.CR2" "/Users/jukka/Downloads/kuva-50-2.jpg")
+  (resize-file "/Users/jukka/Downloads/target/2021/2021-07-16/2021-07-16.09.04.22.74_2465ce519abafd914391740feac37b53.CR3" "/Users/jukka/Downloads/test.jpg")
   ) ;; TODO: remove-me
 
 
