@@ -5,7 +5,8 @@
             [clojure.java.io :as io]
             [carch.resize :as resize]
             [clj-time.core :as clj-time]
-            [clj-time.coerce :as coerce])
+            [clj-time.coerce :as coerce]
+            [jsonista.core :as jsonista])
   (:import [java.io File]
            [java.util Calendar Date]
            [com.drew.imaging ImageMetadataReader]
@@ -85,7 +86,7 @@
            (format "%02d" day)))
     "dateless"))
 
-(defn file-name-date-string [{:keys [year month day hour minute second]}]
+(defn file-name-date-string [{:keys [year month day hour minute second subsecond]}]
   (str year
        "-"
        (format "%02d" month)
@@ -96,7 +97,16 @@
        "."
        (format "%02d" minute)
        "."
-       (format "%02d" second)))
+       (format "%02d" second)
+       (when subsecond
+         (str "." (format "%02d" subsecond)))))
+
+(deftest test-file-name-date-string
+  (is (= "2021-07-20.19.09.01.01"
+         (file-name-date-string {:year 2021, :month 7, :day 20, :hour 19, :minute 9, :second 1, :subsecond 1})))
+
+  (is (= "2021-07-20.19.09.35"
+         (file-name-date-string {:year 2021, :month 7, :day 20, :hour 19, :minute 9, :second 35}))))
 
 
 (defn bytes-to-hex-string [bytes]
@@ -210,9 +220,6 @@
                                                                  #_(.class BasicFileAttributes))
                                            "creationTime")))))
 
-#_(file-creation-date "/Users/jukka/Dropbox/bin/kuvat_kortilta_macissa copy.clj")
-
-
 ;; PHOTOS
 
 (defn photo-exif-date [photo-file-name]
@@ -225,19 +232,21 @@
                             (.getDirectories))
               tag (.getTags directory)]
           [directory tag])))
-(comment
-  (photo-exif-date "/Volumes/Backup_3_1/kuva-arkisto/2020/2020-07-30/2020-07-30.16.57.04_32e0ff3afef390fc74668abde371f3d5.HEIC")
-  ) ;; TODO: remove-me
 
 (deftest test-photo-exif-date
   (is (= #inst "2019-10-14T09:00:48.000-00:00"
          (photo-exif-date "dev-resources/image.jpg"))))
 
 (defn photo-exif-datemap [photo-file-name]
-  (try (date-to-map (photo-exif-date photo-file-name))
-       (catch Exception e
-         (println "WARNING: could not get exif date from " photo-file-name)
-         nil)))
+  (let [date (try (or (exiftool/get-date photo-file-name)
+                      (date-to-map (photo-exif-date photo-file-name)))
+                  (catch Exception e
+                    (println "WARNING: could not get exif date from " photo-file-name)
+                    nil))]
+    (when (nil? date)
+      (println "WARNING: could not get exif date from " photo-file-name))
+
+    date))
 
 (defn photo-date [file-name]
   (or (photo-exif-datemap file-name)
@@ -249,7 +258,7 @@
   (archiver-name [archiver] "photos")
 
   (accept-source-file [archiver file]
-    (#{"dng" "png" "cr2" "nef" "jpg" "tif" "heic"} (.toLowerCase (extension (.getName file)))))
+    (#{"dng" "png" "cr2" "cr3" "nef" "jpg" "tif" "heic"} (.toLowerCase (extension (.getName file)))))
 
   (target-file-name [archiver md5 source-file-name]
     (file-name (photo-date source-file-name)
@@ -270,12 +279,12 @@
   (let [[year month day hour minute second] (rest (re-matches #"(\d\d\d\d)-(\d\d)-(\d\d)\.(\d\d)\.(\d\d)\.(\d\d).*"
                                                               file-name))]
     (when (and year month day hour minute second)
-     {:year (Integer/parseInt year)
-      :month (Integer/parseInt month)
-      :day (Integer/parseInt day)
-      :hour (Integer/parseInt hour)
-      :minute (Integer/parseInt minute)
-      :second (Integer/parseInt second)})))
+      {:year (Integer/parseInt year)
+       :month (Integer/parseInt month)
+       :day (Integer/parseInt day)
+       :hour (Integer/parseInt hour)
+       :minute (Integer/parseInt minute)
+       :second (Integer/parseInt second)})))
 
 (deftest test-date-from-file-name
   (is (= {:year 2020, :month 8, :day 25, :hour 14, :minute 51, :second 7}
@@ -313,14 +322,6 @@
 
   (compare-file-sizes? [archiver] true))
 
-(comment
-  "/Users/jukka/Documents/wrong-date-photos"
-
-  ) ;; TODO: remove-me
-
-(defn resized-file-date [source-file-path]
-  (or (date-from-file-name (.getName (File. source-file-path)))
-      (photo-date source-file-path)))
 
 (deftype ResizingPhotoArchiver []
   Archiver
@@ -328,7 +329,7 @@
   (archiver-name [archiver] "resized photos")
 
   (accept-source-file [archiver file]
-    (#{"dng" "png" "cr2" "nef" "jpg" "tif" "heic"} (.toLowerCase (extension (.getName file)))))
+    (#{"dng" "png" "cr2" "cr3" "nef" "jpg" "tif" "heic"} (.toLowerCase (extension (.getName file)))))
 
   (target-file-name [archiver md5 source-file-name]
     (file-name (photo-date source-file-name)
@@ -348,13 +349,17 @@
 ;; VIDEOS
 
 (defn get-video-date [file-name]
-  (try (exiftool/get-date file-name)
-       (catch Exception e
-         (file-creation-date file-name))))
+  (or (exiftool/get-date file-name)
+      (file-creation-date file-name)))
 
 (comment
-  (exiftool/get-date "/Users/jukka/Downloads/IMG_0095.MOV")
-  (get-video-date "/Users/jukka/Downloads/IMG_0095.MOV"))
+  (exiftool/get-date #_"/Users/jukka/Downloads/IMG_0095.MOV"
+                     #_"/Users/jukka/Pictures/uudet-kuvat/r6 4/7Y7A2551.MP4"
+                     "/Users/jukka/Pictures/uudet-kuvat/jarmon pokkari/DCIM/822_0507/MVI_3691.MOV")
+
+  (get-video-date #_"/Users/jukka/Downloads/IMG_0095.MOV"
+                  #_"/Users/jukka/Pictures/uudet-kuvat/r6 4/7Y7A2551.MP4"
+                  "/Users/jukka/Pictures/uudet-kuvat/jarmon pokkari/DCIM/822_0507/MVI_3691.MOV"))
 
 (deftype VideoArchiver []
   Archiver
@@ -524,7 +529,8 @@
                                                          (and (= "heic"
                                                                  (.toLowerCase (extension (.getName file))))
                                                               (not (= (date-from-file-name (.getName file))
-                                                                      (photo-date (.getPath file)))))))
+                                                                      (dissoc (photo-date (.getPath file))
+                                                                              :subsecond))))))
                                                #_(take 10)
                                                (map (fn [file]
                                                       (swap! count-atom inc)
@@ -578,12 +584,12 @@
               (.getPath file)))
        (first))
 
+  (photo-exif-datemap #_"/Users/jukka/Pictures/uudet-kuvat/r6 5/7Y7A2767.CR3"
+                      #_"/Users/jukka/Pictures/uudet-kuvat/550d/DCIM/100CANON/_MG_7891.CR2"
+                      #_"/Users/jukka/Pictures/uudet-kuvat/jarmon pokkari/DCIM/822_0507/IMG_3667.JPG"
+                      "/Users/jukka/Downloads/IMG_3042.HEIC")
 
-  (photo-exif-datemap "/Users/jukka/Pictures/pienet-kuvat/2020/2020-10-22/2020-10-22.00.30.51_051ad1c176a378dcf618232c97844764.JPG-small.jpg")
   (md5 "/Users/jukka/Pictures/uudet_kuvat/sirun iphone/IMG_8240.MOV")
-  (archive2 (->PhotoArchiver)
-            "/Users/jukka/Pictures/uudet_kuvat/sirun iphone/IMG_0105.HEIC"
-            ["/Users/jukka/Downloads/archive1" "/Users/jukka/Downloads/archive2"])
 
   (stop)
 
@@ -595,9 +601,10 @@
          [(->ResizingPhotoArchiver)])
 
 
-  (start {:source-paths ["/Users/jukka/Downloads/source"]
+  (start {:source-paths ["/Users/jukka/Downloads/test-photos"]
           :archive-paths ["/Users/jukka/Downloads/target"]}
-         [(->PhotoArchiver) (->VideoArchiver)])
+         [(->ResizingPhotoArchiver) ;;(->PhotoArchiver) (->VideoArchiver)
+          ])
 
   (start {:source-paths [#_"/Volumes/Backup_3_1/kuva-arkisto/2020/2020-04-27"
                          "/Volumes/Backup_3_1/kuva-arkisto/2020"]
@@ -615,9 +622,6 @@
 
   (file-last-modified-date "/Volumes/NEW VOLUME/DCIM/789CANON/IMG_8953.cr2")
   (file-last-modified-date "/Volumes/NEW VOLUME/DCIM/789CANON/IMG_8953.jpg")
-
-  (with-out-str
-    (run-command "exiftool" "-CreateDate" "/Users/jukka/Pictures/uudet_kuvat/100ANDRO/MOV_0006.mp4"))
 
   (.getImageMeta (ExifTool.)
                  (File. "/Users/jukka/Pictures/uudet_kuvat/100ANDRO/DSC_0244.JPG" #_"/Users/jukka/Pictures/uudet_kuvat/100ANDRO/MOV_0006.mp4")
