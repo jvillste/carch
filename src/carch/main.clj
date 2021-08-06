@@ -32,7 +32,8 @@
   (let [[command-name & arguments] command-line-arguments]
     (if-let [command (find-command command-name
                                    commands)]
-      (apply command arguments)
+      (do (apply command arguments)
+          (System/exit 0))
 
       (do (println "Use one of the commands:")
           (println "------------------------")

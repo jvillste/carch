@@ -425,10 +425,13 @@
 
     (.addShutdownHook (Runtime/getRuntime)
                       (Thread. (fn []
-                                 (println "stopping copying")
-                                 (reset! running false)
-                                 (locking copy-lock
-                                   (println "exiting")))))
+                                 (println "shutting down")
+                                 (when @running
+                                   (println "stopping copying")
+                                   (reset! running false)
+                                   (locking copy-lock
+                                     (Thread/sleep 1000) ;; wait for error report printout in the copying thread
+                                     (println "exiting"))))))
 
     (doseq  [archive-path archive-paths]
       (when (not (.exists (File. archive-path)))
@@ -461,7 +464,8 @@
                      (recur (rest files) (inc index)))))))
 
            (if @running
-             (write-log "Archiving ready.")
+             (do (write-log "Archiving ready.")
+                 (reset! running false))
              (write-log "Archiving stopped by the user."))
            (write-log (count @files-with-errors) "files had errors:")
            (doseq [file-name @files-with-errors]
