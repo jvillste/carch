@@ -56,6 +56,13 @@
       (first)
       (get "DateTimeOriginal")))
 
+(defn media-create-date [file-name]
+  (-> (shell/sh "exiftool" "-json" "-QuickTime:MediaCreateDate" file-name)
+      (:out)
+      (jsonista/read-value)
+      (first)
+      (get "MediaCreateDate")))
+
 (defn subsecond-date-time-original [file-name]
   (-> (shell/sh "exiftool" "-json" "-Composite:SubSecDateTimeOriginal" #_"-EXIF:DateTimeOriginal" file-name)
       (:out)
@@ -91,7 +98,8 @@
 
 (defn get-date [file-name]
   (or (subsecond-date-time-orignal-to-map (subsecond-date-time-original file-name))
-      (subsecond-date-time-orignal-to-map (subsecond-date-time-original file-name))))
+      (parse-date (date-time-original file-name))
+      (parse-date (media-create-date file-name))))
 
 (deftest test-get-date
   (is (= {:year 2020, :month 7, :day 5, :hour 14, :minute 53, :second 23}
@@ -108,15 +116,18 @@
 
 
 (comment
+  (get-date "/Users/jukka/Pictures/uudet-kuvat/2021/2021-08-21/2021-08-21.09.46.13_6bb96a2482e3bfb1a859c34f43eb4f69.mp4")
   (subsecond-date-time-original #_"/Users/jukka/google-drive/src/carch/dev-resources/Canon PowerShot SX260 HS.JPG"
-                                "/Users/jukka/google-drive/src/carch/dev-resources/r6.CR3")
+                                #_"/Users/jukka/google-drive/src/carch/dev-resources/r6.CR3"
+                                "/Users/jukka/Pictures/uudet-kuvat/2021/2021-08-21/2021-08-21.09.46.13_6bb96a2482e3bfb1a859c34f43eb4f69.mp4")
 
+  (media-create-date "/Users/jukka/Pictures/uudet-kuvat/2021/2021-08-21/2021-08-21.09.46.13_6bb96a2482e3bfb1a859c34f43eb4f69.mp4")
   (date-time-original "/Users/jukka/google-drive/src/carch/dev-resources/Canon PowerShot SX260 HS.JPG"
                       #_"/Users/jukka/google-drive/src/carch/dev-resources/r6.CR3")
 
   (get-tag "/Users/jukka/Downloads/IMG_0095.MOV" "CreateDate")
   (println (get-tag "/Users/jukka/Pictures/uudet_kuvat/100ANDRO/MOV_0006.mp4" "CreateDate"))
-  (println (get-date "/Users/jukka/Downloads/temp/video/2016/2016-05-07/2016-04-03.13.52.21_7504ba4430f91de6b8f9450d44dfb32a.mp4"))
+  (println (get-date "/Users/jukka/Pictures/uudet-kuvat/2021/2021-08-21/2021-08-21.09.46.13_6bb96a2482e3bfb1a859c34f43eb4f69.mp4"))
 
   (with-out-str
     (run-command "exiftool" "-S" "-CreateDate" "/Users/jukka/Pictures/uudet_kuvat/100ANDRO/MOV_0006.mp4")))
