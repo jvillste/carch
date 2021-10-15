@@ -13,11 +13,12 @@
     (str target-dir relative-path)))
 
 (defn resize-file [source-path target-path]
-  (let [result (shell/sh "sips" "-s" "format" "jpeg" "-s" "formatOptions" "20" "-Z" "2000" source-path "--out" target-path)
-        #_(shell/sh "convert" "-quality" "50" "-resize" "2000x2000" source-path target-path)]
+  (let [result #_(shell/sh "sips" "-s" "format" "jpeg" "-s" "formatOptions" "20" "-Z" "2000" source-path "--out" target-path)
+        (shell/sh "/Users/jukka/bin/imagemagick/bin/convert" "-quality" "50" "-resize" "2000x2000" source-path target-path)]
     (when (not (= 0 (:exit result)))
       (println "Error when resizing:" (:err result))
-      (throw (ex-info "Error when resizing" result)))))
+      (throw (ex-info "Error when resizing" result)))
+    result))
 
 (defn resize [source-dir target-dir]
   (doseq [source-path (->> (common/files-in-directory source-dir)
@@ -33,7 +34,7 @@
             (resize-file source-path target-path))))))
 
 (comment
-  (resize-file "/Users/jukka/Pictures/uudet-kuvat/2021/2021-10-14/2021-10-14.08.53.12.09_0e0d71e3a800531c3c964db6fb39e27c.CR3" "/Users/jukka/Downloads/test.jpg")
+  (resize-file "/Users/jukka/Pictures/uudet-kuvat/2021/2021-10-14/2021-10-14.08.42.36.89_b657555fbfa560cd540f0e5e27e2f69d.CR3" "/Users/jukka/Downloads/test.jpg")
   ) ;; TODO: remove-me
 
 
