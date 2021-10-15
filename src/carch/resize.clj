@@ -13,8 +13,11 @@
     (str target-dir relative-path)))
 
 (defn resize-file [source-path target-path]
-  #_(shell/sh "convert" "-quality" "50" "-resize" "2000x2000" source-path target-path)
-  (shell/sh "sips" "-s" "format" "jpeg" "-s" "formatOptions" "20" "-Z" "2000" source-path "--out" target-path))
+  (let [result (shell/sh "sips" "-s" "format" "jpeg" "-s" "formatOptions" "20" "-Z" "2000" source-path "--out" target-path)
+        #_(shell/sh "convert" "-quality" "50" "-resize" "2000x2000" source-path target-path)]
+    (when (not (= 0 (:exit result)))
+      (println "Error when resizing:" (:err result))
+      (throw (ex-info "Error when resizing" result)))))
 
 (defn resize [source-dir target-dir]
   (doseq [source-path (->> (common/files-in-directory source-dir)
@@ -27,12 +30,10 @@
         #_(println "already exists" target-path)
         (do (println source-path " -> " target-path)
             (.mkdirs (.getParentFile (File. target-path)))
-            (resize-file source-path target-path)
-            ;;(shell/sh "sips" "-Z" "1024" "--setProperty" "formatOptions" "40" source-path "--out" target-path)
-            )))))
+            (resize-file source-path target-path))))))
 
 (comment
-  (resize-file "/Users/jukka/Downloads/target/2021/2021-07-16/2021-07-16.09.04.22.74_2465ce519abafd914391740feac37b53.CR3" "/Users/jukka/Downloads/test.jpg")
+  (resize-file "/Users/jukka/Pictures/uudet-kuvat/2021/2021-10-14/2021-10-14.08.53.12.09_0e0d71e3a800531c3c964db6fb39e27c.CR3" "/Users/jukka/Downloads/test.jpg")
   ) ;; TODO: remove-me
 
 
