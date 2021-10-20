@@ -6,7 +6,8 @@
             [carch.resize :as resize]
             [clj-time.core :as clj-time]
             [clj-time.coerce :as coerce]
-            [jsonista.core :as jsonista])
+            [jsonista.core :as jsonista]
+            [clojure.string :as string])
   (:import [java.io File]
            [java.util Calendar Date]
            [com.drew.imaging ImageMetadataReader]
@@ -24,12 +25,32 @@
 (def files-with-errors (atom []))
 
 (defprotocol Archiver
+  (thread-count [archiver])
   (archiver-name [archiver])
   (accept-source-file [archiver file])
   (target-file-name [archiver md5 temp-file])
   (target-path [archiver temp-file-name])
   (copy-file [archiver source-file-name target-file-names])
   (compare-file-sizes? [archiver]))
+
+
+(defn- optimal-thread-count []
+  (+ (.. Runtime getRuntime availableProcessors)
+     2))
+
+(comment
+  6 "Elapsed time: 53828.515847 msecs"
+  4 "Elapsed time: 60741.127826 msecs"
+  8 "Elapsed time: 50822.612694 msecs"
+  10 "Elapsed time: 29816.971341 msecs"
+  ) ;; TODO: remove-me
+
+(defn- map-concurrently [thread-count function vals]
+  (let [executor (java.util.concurrent.Executors/newFixedThreadPool thread-count)]
+    (->> vals
+         (mapv #(fn [] (function %)))
+         (.invokeAll executor)
+         (mapv deref))))
 
 (defn date-to-map [date]
   (let [date (coerce/from-date date)]
@@ -113,14 +134,17 @@
   (apply str (map #(format "%02x" %)
                   bytes)))
 
-(defn write-log [& message]
-  (apply println message)
+(def log-lock (Object.))
+
+(defn write-log [& values]
+  (locking log-lock
+    (apply println values))
+
   #_(swap! log (fn [old-log] (str old-log "\n" (apply str message)))))
 
-(def buffer (byte-array (* 1024 1024 20)))
 
 (defn process-file [source-file-name processor]
-  (try (let [file-size (.length (File. source-file-name))]
+  (try (let [buffer (byte-array (* 1024 1024))]
          (with-open [input-stream (clojure.java.io/input-stream source-file-name)]
            (try
              (loop [bytes-read (.read input-stream buffer)
@@ -182,7 +206,7 @@
     (resize/resize-file source-file-name target-file-name)))
 
 (defn archive [archiver source-file-name archive-paths]
-  (let [md5 (md5 source-file-name)
+   (let [md5 (md5 source-file-name)
         source-length (file-length source-file-name)
         target-file-names (for [archive-path archive-paths]
                             (append-paths archive-path
@@ -192,11 +216,12 @@
                             (or (not (compare-file-sizes? archiver))
                                 (= (file-length %)
                                    source-length)))]
-    (println "copying to" (append-paths (target-path archiver source-file-name)
-                                        (target-file-name archiver md5 source-file-name)))
+
+    (write-log "copying to" (append-paths (target-path archiver source-file-name)
+                                    (target-file-name archiver md5 source-file-name)))
     (doseq [target-file-name (filter target-exists
                                      target-file-names)]
-      (println source-file-name "already exists in" target-file-name))
+      (write-log source-file-name "already exists in" target-file-name))
 
     (let [target-file-names (remove target-exists
                                     target-file-names)]
@@ -255,6 +280,8 @@
 (deftype PhotoArchiver []
   Archiver
 
+  (thread-count [archiver] 1)
+
   (archiver-name [archiver] "photos")
 
   (accept-source-file [archiver file]
@@ -302,6 +329,8 @@
 (deftype WrongDatePhotoArchiver []
   Archiver
 
+  (thread-count [archiver] 1)
+
   (archiver-name [archiver] "photos")
 
   (accept-source-file [archiver file]
@@ -325,6 +354,8 @@
 
 (deftype ResizingPhotoArchiver []
   Archiver
+
+  (thread-count [archiver] (optimal-thread-count))
 
   (archiver-name [archiver] "resized photos")
 
@@ -363,6 +394,8 @@
 
 (deftype VideoArchiver []
   Archiver
+
+  (thread-count [archiver] 1)
 
   (archiver-name [archiver] "videos")
 
@@ -446,22 +479,33 @@
 
            (doseq [archiver archivers
                    source-path source-paths]
-             (write-log "********* Archiving " (count (files-for-archiver archiver source-path)) " "(archiver-name archiver) " from " source-path " *********")
-             (let [files (files-for-archiver archiver source-path)
-                   file-count (count files)]
-               (loop [files files
-                      index 1]
-                 (when (seq files)
-                   (locking copy-lock
-                     (write-log "Archiving file " index "/" file-count " " (.getPath (first files)))
-                     (try (archive archiver (.getPath (first files)) archive-paths)
-                          (catch Exception exception
-                            (swap! files-with-errors conj (.getPath (first files)))
-                            (write-log "ERROR in archiving file " (.getPath (first files)) " : " (.getMessage exception))
-                            (write-log (stack-trace exception)))))
+             (let [batch-size (thread-count archiver)]
+               (write-log "********* Archiving " (count (files-for-archiver archiver source-path)) " " (archiver-name archiver) " from " source-path " *********")
+               (let [files (files-for-archiver archiver source-path)
+                     file-count (count files)]
+                 (loop [files files
+                        index 1]
+                   (when (seq files)
+                     (locking copy-lock
+                       (write-log (str "Processing files " index "-" (min file-count
+                                                                          (dec (+ index batch-size))) "/" file-count ":\n"
+                                       (string/join "\n"
+                                                    (map #(.getPath %)
+                                                         (take batch-size files)))))
+                       (try
+                         (map-concurrently batch-size
+                                           (fn [file]
+                                             (archive archiver
+                                                      (.getPath file)
+                                                      archive-paths))
+                                           (take batch-size files))
+                         (catch Exception exception
+                           (swap! files-with-errors conj (.getPath (first files)))
+                           (write-log "ERROR in archiving file " (.getPath (first files)) " : " (.getMessage exception))
+                           (write-log (stack-trace exception)))))
 
-                   (when @running
-                     (recur (rest files) (inc index)))))))
+                     (when @running
+                       (recur (drop batch-size files) (+ index batch-size))))))))
 
            (if @running
              (do (write-log "Archiving ready.")
@@ -593,8 +637,6 @@
                       #_"/Users/jukka/Pictures/uudet-kuvat/jarmon pokkari/DCIM/822_0507/IMG_3667.JPG"
                       "/Users/jukka/Downloads/IMG_3042.HEIC")
 
-  (md5 "/Users/jukka/Pictures/uudet_kuvat/sirun iphone/IMG_8240.MOV")
-
   (stop)
 
   (println (source-directories))
@@ -605,10 +647,10 @@
          [(->ResizingPhotoArchiver)])
 
 
-  (start {:source-paths ["/Users/jukka/Downloads/test-photos"]
-          :archive-paths ["/Users/jukka/Downloads/target"]}
-         [(->ResizingPhotoArchiver) ;;(->PhotoArchiver) (->VideoArchiver)
-          ])
+  (time (start {:source-paths ["/Users/jukka/Downloads/test-photos"]
+                :archive-paths ["/Users/jukka/Downloads/target"]}
+               [(->ResizingPhotoArchiver) ;;(->PhotoArchiver) (->VideoArchiver)
+                ]))
 
   (start {:source-paths [#_"/Volumes/Backup_3_1/kuva-arkisto/2020/2020-04-27"
                          "/Volumes/Backup_3_1/kuva-arkisto/2020"]
