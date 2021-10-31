@@ -4,11 +4,11 @@
 
 (defn copy [paths-string]
   (core/start (read-string paths-string)
-              [(core/->PhotoArchiver) (core/->VideoArchiver)]))
+              [(core/->PhotoArchiver) (core/->VideoArchiver) (core/->XMPArchiver)]))
 
-(defn copy-photos [paths-string]
+(defn copy-xmps [paths-string]
   (core/start (read-string paths-string)
-              [(core/->PhotoArchiver)]))
+              [(core/->XMPArchiver)]))
 
 (defn copy-with-config-file [paths-file-name]
   (copy (slurp paths-file-name)))
@@ -18,8 +18,8 @@
               [(core/->ResizingPhotoArchiver)]))
 
 (def commands [#'copy
-               #'copy-photos
                #'copy-with-config-file
+               #'copy-xmps
                #'resize])
 
 (defn find-command [command-name commands]
