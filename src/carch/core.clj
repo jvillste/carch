@@ -45,8 +45,10 @@
   10 "Elapsed time: 29816.971341 msecs"
   ) ;; TODO: remove-me
 
+(def executor (memoize (fn [thread-count] (java.util.concurrent.Executors/newFixedThreadPool thread-count))))
+
 (defn- map-concurrently [thread-count function vals]
-  (let [executor (java.util.concurrent.Executors/newFixedThreadPool thread-count)]
+  (let [executor (executor thread-count)]
     (->> vals
          (mapv #(fn [] (function %)))
          (.invokeAll executor)
