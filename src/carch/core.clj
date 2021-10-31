@@ -92,6 +92,10 @@
 (defn extension [file-name]
   (.substring file-name (+ 1 (.lastIndexOf file-name "."))))
 
+(deftest test-extension
+  (is (= "bar"
+         (extension "foo.bar"))))
+
 
 (defn append-paths [& paths]
   (apply str (interpose File/separator
@@ -208,7 +212,7 @@
     (resize/resize-file source-file-name target-file-name)))
 
 (defn archive [archiver source-file-name archive-paths]
-   (let [md5 (md5 source-file-name)
+  (let [md5 (md5 source-file-name)
         source-length (file-length source-file-name)
         target-file-names (for [archive-path archive-paths]
                             (append-paths archive-path
@@ -220,7 +224,7 @@
                                    source-length)))]
 
     (write-log "copying to" (append-paths (target-path archiver source-file-name)
-                                    (target-file-name archiver md5 source-file-name)))
+                                          (target-file-name archiver md5 source-file-name)))
     (doseq [target-file-name (filter target-exists
                                      target-file-names)]
       (write-log source-file-name "already exists in" target-file-name))
@@ -279,6 +283,8 @@
   (or (photo-exif-datemap file-name)
       (file-creation-date file-name)))
 
+(def photo-extension-set #{"dng" "png" "cr2" "cr3" "nef" "jpg" "tif" "heic"})
+
 (deftype PhotoArchiver []
   Archiver
 
@@ -287,7 +293,8 @@
   (archiver-name [archiver] "photos")
 
   (accept-source-file [archiver file]
-    (#{"dng" "png" "cr2" "cr3" "nef" "jpg" "tif" "heic"} (.toLowerCase (extension (.getName file)))))
+    (contains? photo-extension-set
+               (.toLowerCase (extension (.getName file)))))
 
   (target-file-name [archiver md5 source-file-name]
     (file-name (photo-date source-file-name)
@@ -296,6 +303,51 @@
 
   (target-path [archiver source-file-name]
     (-> source-file-name
+        photo-date
+        target-path-by-date))
+
+  (copy-file [archiver source-file-name target-file-names]
+    (copy-file-with-streams source-file-name target-file-names))
+
+  (compare-file-sizes? [archiver] true))
+
+(defn photo-file-name-for-xmp-file-name [xmp-file-name]
+  (string/replace xmp-file-name
+                  "xmp"
+                  (->> photo-extension-set
+                       (map (fn [photo-extension]
+                              (string/replace xmp-file-name
+                                              ".xmp"
+                                              (str "." photo-extension))))
+                       (filter (fn [file-name]
+                                 (.exists (File. file-name))))
+                       (first)
+                       (extension))))
+
+(comment
+  (photo-file-name-for-xmp-file-name "/Users/jukka/Downloads/test-photos/2021-10-14.08.27.56.32_39ce985ea7e6848015fab2efa8509e13.xmp")
+  ) ;; TODO: remove-me
+
+
+(deftype XMPArchiver []
+  Archiver
+
+  (thread-count [archiver] 1)
+
+  (archiver-name [archiver] "xmp files")
+
+  (accept-source-file [archiver file]
+    (= "xmp" (.toLowerCase (extension (.getName file)))))
+
+  (target-file-name [archiver xmp-md5 source-file-name]
+    (let [photo-file-name (photo-file-name-for-xmp-file-name source-file-name)]
+      (file-name (photo-date photo-file-name)
+                 (md5 photo-file-name)
+                 "xmp")))
+
+  (target-path [archiver source-file-name]
+    (-> source-file-name
+        photo-file-name-for-xmp-file-name
         photo-date
         target-path-by-date))
 
@@ -651,7 +703,7 @@
 
   (time (start {:source-paths ["/Users/jukka/Downloads/test-photos"]
                 :archive-paths ["/Users/jukka/Downloads/target"]}
-               [(->ResizingPhotoArchiver) ;;(->PhotoArchiver) (->VideoArchiver)
+               [#_(->ResizingPhotoArchiver) (->PhotoArchiver) #_(->VideoArchiver) (->XMPArchiver)
                 ]))
 
   (start {:source-paths [#_"/Volumes/Backup_3_1/kuva-arkisto/2020/2020-04-27"
