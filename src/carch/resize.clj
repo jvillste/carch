@@ -13,7 +13,7 @@
     (str target-dir relative-path)))
 
 (defn resize-file [source-path target-path]
-  (let [result (shell/sh "sips" "-s" "format" "jpeg" "-s" "formatOptions" "20" "-Z" "2000" source-path "--out" target-path)
+  (let [result (shell/sh "sips" "-s" "format" "jpeg" "-s" "formatOptions" "50" "-Z" "2000" source-path "--out" target-path)
         #_(shell/sh "/Users/jukka/bin/imagemagick/bin/convert" "-quality" "50" "-resize" "2000x2000" source-path target-path)]
     (when (not (= 0 (:exit result)))
       (println "Error when resizing:" (:err result))
