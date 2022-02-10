@@ -19,13 +19,15 @@
     [(nth matches 1)
      (nth matches 2)]))
 
+(def exiftool-path "/Users/jukka/bin/Image-ExifTool-12.40/exiftool")
+
 (deftest parse-key-value-test
   (is (= ["CreateDate" "2016:04:03 13:52:21"]
          (parse-key-value "CreateDate: 2016:04:03 13:52:21\n\n"))))
 
 (defn- get-tag [file-name tag-name]
   (-> (with-out-str
-        (run-command "exiftool" "-S" "-CreateDate" file-name))
+        (run-command exiftool-path "-S" "-CreateDate" file-name))
       (parse-key-value)
       (second)))
 
@@ -50,21 +52,21 @@
          (parse-date "2016:04:03 13:52:21"))))
 
 (defn date-time-original [file-name]
-  (-> (shell/sh "exiftool" "-json" "-EXIF:DateTimeOriginal" file-name)
+  (-> (shell/sh exiftool-path "-json" "-EXIF:DateTimeOriginal" file-name)
       (:out)
       (jsonista/read-value)
       (first)
       (get "DateTimeOriginal")))
 
 (defn media-create-date [file-name]
-  (-> (shell/sh "exiftool" "-json" "-QuickTime:MediaCreateDate" file-name)
+  (-> (shell/sh exiftool-path "-json" "-QuickTime:MediaCreateDate" file-name)
       (:out)
       (jsonista/read-value)
       (first)
       (get "MediaCreateDate")))
 
 (defn subsecond-date-time-original [file-name]
-  (-> (shell/sh "exiftool" "-json" "-Composite:SubSecDateTimeOriginal" #_"-EXIF:DateTimeOriginal" file-name)
+  (-> (shell/sh exiftool-path "-json" "-Composite:SubSecDateTimeOriginal" #_"-EXIF:DateTimeOriginal" file-name)
       (:out)
       (jsonista/read-value)
       (first)
