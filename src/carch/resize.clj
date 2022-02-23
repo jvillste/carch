@@ -1,6 +1,7 @@
 (ns carch.resize
   (:require [carch.common :as common]
-            [clojure.java.shell :as shell])
+            [clojure.java.shell :as shell]
+            [clojure.string :as string])
   (:import [java.io File]
            #_[java.nio.file Paths]
            [java.util Calendar Date]
@@ -12,8 +13,21 @@
   (let [relative-path (.substring source-path (.length source-dir))]
     (str target-dir relative-path)))
 
+(defn image-dimensions [file-path]
+  (let [[width height] (->> (string/split (:out (shell/sh "sips" "-g" "pixelWidth" "-g" "pixelHeight" file-path))
+                                          #"\n")
+                            (rest)
+                            (map #(string/split % #" "))
+                            (map last)
+                            (map read-string))]
+    {:width width
+     :height height}))
+
 (defn resize-file [source-path target-path]
-  (let [result (shell/sh "sips" "-s" "format" "jpeg" "-s" "formatOptions" "50" "-Z" "2000" source-path "--out" target-path)
+  (let [dimensions (image-dimensions source-path)
+        result (if (> 2000 (apply max (vals dimensions))) ;; -Z scales up images even if it should not
+                 (shell/sh "sips" "-s" "format" "jpeg" "-s" "formatOptions" "50" source-path "--out" target-path)
+                 (shell/sh "sips" "-s" "format" "jpeg" "-s" "formatOptions" "50" "-Z" "2000" source-path "--out" target-path))
         #_(shell/sh "/Users/jukka/bin/imagemagick/bin/convert" "-quality" "50" "-resize" "2000x2000" source-path target-path)]
     (when (not (= 0 (:exit result)))
       (println "Error when resizing:" (:err result))
@@ -34,10 +48,7 @@
             (resize-file source-path target-path))))))
 
 (comment
-  (resize-file "/Users/jukka/Pictures/uudet-kuvat/2022/2022-02-02/2022-02-02.16.21.26_810b11309cf8f407cdb9cc404813770b.CR3" "/Users/jukka/Downloads/test.jpg")
-  ) ;; TODO: remove-me
-
-
-#_(resize "/Volumes/BACKUP1/kuva-arkisto/" "/Users/jukka/Pictures/minikuva-arkisto/")
-
-#_(resize "/Users/jukka/Downloads/uudet_kuvat/" "/Users/jukka/Downloads/arkisto_mini/")
+  (resize-file "/Volumes/Backup_3_1/kuva-arkisto/2003/2003-06-15/2003-06-15.12.43.36_e464a05f9104f56a8950ee124f3dc6aa.jpg" "/Users/jukka/Downloads/test.jpg")
+  (resize "/Volumes/BACKUP1/kuva-arkisto/" "/Users/jukka/Pictures/minikuva-arkisto/")
+  (resize "/Users/jukka/Downloads/uudet_kuvat/" "/Users/jukka/Downloads/arkisto_mini/")
+  )
