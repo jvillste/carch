@@ -17,10 +17,15 @@
   (core/start (read-string paths-string)
               [(core/->ResizingPhotoArchiver)]))
 
+(defn resize-videos [paths-string]
+  (core/start (read-string paths-string)
+              [(core/->ResizingVideoArchiver)]))
+
 (def commands [#'copy
                #'copy-with-config-file
                #'copy-xmps
-               #'resize])
+               #'resize
+               #'resize-videos])
 
 (defn find-command [command-name commands]
   (first (filter (fn [command]

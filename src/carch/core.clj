@@ -87,7 +87,8 @@
 
 (defn files-for-archiver [archiver directory-path]
   (filter #(accept-source-file archiver %)
-          (common/files-in-directory directory-path)))
+          (sort-by #(.getAbsolutePath %)
+                   (common/files-in-directory directory-path))))
 
 (defn extension [file-name]
   (.substring file-name (+ 1 (.lastIndexOf file-name "."))))
@@ -469,6 +470,31 @@
 
   (compare-file-sizes? [archiver] true))
 
+(deftype ResizingVideoArchiver []
+  Archiver
+
+  (thread-count [archiver] 1)
+
+  (archiver-name [archiver] "resized videos")
+
+  (accept-source-file [archiver file]
+    (#{"mov" "mp4" "avi" "wmv" "mpg"} (.toLowerCase (extension (.getName file)))))
+
+  (target-file-name [archiver md5 source-file-name]
+    (file-name (get-video-date source-file-name)
+               md5
+               (str (extension source-file-name) "-small.mp4")))
+
+  (target-path [archiver source-file-name]
+    (-> source-file-name
+        get-video-date
+        target-path-by-date))
+
+  (copy-file [archiver source-file-name target-file-names]
+    (doseq [target-file-name target-file-names]
+      (resize/resize-video source-file-name target-file-name)))
+
+  (compare-file-sizes? [archiver] false))
 
 ;; UI
 
@@ -699,6 +725,12 @@
 
           :archive-paths ["/Users/jukka/Pictures/pienet-kuvat"]}
          [(->ResizingPhotoArchiver)])
+
+  (start {:source-paths [#_"/Volumes/Backup_3_1/kuva-arkisto/2021/2021-12-25"
+                         "/Volumes/Backup_3_1/kuva-arkisto/2006"
+                         #_"/Users/jukka/Pictures/uudet-kuvat/2022/2022-03-29"]
+          :archive-paths ["/Users/jukka/Downloads/small-videos"]}
+         [(->ResizingVideoArchiver)])
 
 
   (time (start {:source-paths ["/Users/jukka/Downloads/test-photos"]
