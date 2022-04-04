@@ -524,9 +524,14 @@
   ) ;; TODO: remove-me
 
 
-(defn start [{:keys [source-paths archive-paths]} archivers]
+(comment
+  (compare "a" "a")
+  ) ;; TODO: remove-me
 
-  (let [copy-lock (Object.)]
+(defn start [{:keys [source-paths archive-paths last-processed-file-path]} archivers]
+
+  (let [copy-lock (Object.)
+        last-successfully-processed-file-path-atom (atom nil)]
     #_(Signal/handle (Signal. "HUP")
                      (proxy [SignalHandler] []
                        (handle [sig]
@@ -562,6 +567,14 @@
              (let [batch-size (thread-count archiver)]
                (write-log "********* Archiving " (count (files-for-archiver archiver source-path)) " " (archiver-name archiver) " from " source-path " *********")
                (let [files (files-for-archiver archiver source-path)
+                     files (if last-processed-file-path
+                             (do (write-log "skipping to " last-processed-file-path)
+                                 (drop-while (fn [file]
+                                               (< 0
+                                                  (compare last-processed-file-path
+                                                           (.getPath file))))
+                                             files))
+                             files)
                      file-count (count files)]
                  (loop [files files
                         index 1]
@@ -577,7 +590,8 @@
                                            (fn [file]
                                              (archive archiver
                                                       (.getPath file)
-                                                      archive-paths))
+                                                      archive-paths)
+                                             (reset! last-successfully-processed-file-path-atom (.getPath (first files))))
                                            (take batch-size files))
                          (catch Exception exception
                            (swap! files-with-errors conj (.getPath (first files)))
@@ -593,7 +607,8 @@
              (write-log "Archiving stopped by the user."))
            (write-log (count @files-with-errors) "files had errors:")
            (doseq [file-name @files-with-errors]
-             (write-log file-name)))
+             (write-log file-name))
+           (write-log "last successfully processed file: " @last-successfully-processed-file-path-atom))
          (catch Exception exception
            (write-log "ERROR in archiving: " (.getMessage exception))
            (write-log (stack-trace exception))))))
@@ -732,6 +747,11 @@
           :archive-paths ["/Users/jukka/Downloads/small-videos"]}
          [(->ResizingVideoArchiver)])
 
+  (start {:source-paths ["/Volumes/Backup_3_1/kuva-arkisto/2018"]
+          :archive-paths ["/Users/jukka/Pictures/pienet-kuvat"]
+          :last-processed-file-path "/Volumes/Backup_3_1/kuva-arkisto/2018/2018-01-14/2018-01-14.14.41.50_6195e9e9e7f5f5076bb089b6d7f0dbb8.mp4"}
+         [(->ResizingVideoArchiver)])
+
 
   (time (start {:source-paths ["/Users/jukka/Downloads/test-photos"]
                 :archive-paths ["/Users/jukka/Downloads/target"]}
@@ -762,4 +782,5 @@
   (command-line-ui)
   (stop)
 
+  (println "{:source-paths [\"/Volumes/Backup_3_1/kuva-arkisto/2018\"] :archive-paths [\"/Users/jukka/Pictures/pienet-kuvat\"] :last-processed-file-path \"/Volumes/Backup_3_1/kuva-arkisto/2018/2018-01-14/2018-01-14.14.41.50_6195e9e9e7f5f5076bb089b6d7f0dbb8.mp4\"}")
   )
