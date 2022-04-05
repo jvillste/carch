@@ -56,7 +56,7 @@
                          "-c:a" "aac"
                          "-b:a" "128k"
                          "-tag:v" "hvc1"
-                         "-vf" "scale='min(800,iw)':-1"
+                         "-vf" "scale='min(800,iw)':-2"
                          target-path)]
     (when (not (= 0 (:exit result)))
       (println "Error when resizing:" (:err result))
@@ -64,8 +64,8 @@
     result))
 
 (comment
-  (resize-video "/Users/jukka/Pictures/uudet-kuvat/2022/2022-03-29/2022-03-29.19.08.58.02_dc08505a016d2ff3bbcb66fc2f3a3a64.MP4"
-                "/Users/jukka/Downloads/auto-265-scale-800-crf-20-medium-3.mp4")
+  (resize-video "/Volumes/Backup_3_1/kuva-arkisto/2017/2017-12-05/2017-12-05.08.50.07_6790ee6017d6b6bc1158d666356b14ea.MOV"
+                "/Users/jukka/Downloads/live2.mp4")
 
   (resize-file "/Volumes/Backup_3_1/kuva-arkisto/2003/2003-06-15/2003-06-15.12.43.36_e464a05f9104f56a8950ee124f3dc6aa.jpg" "/Users/jukka/Downloads/test.jpg")
   (resize "/Volumes/BACKUP1/kuva-arkisto/" "/Users/jukka/Pictures/minikuva-arkisto/")
