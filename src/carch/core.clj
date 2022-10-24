@@ -284,7 +284,7 @@
   (or (photo-exif-datemap file-name)
       (file-creation-date file-name)))
 
-(def photo-extension-set #{"dng" "png" "cr2" "cr3" "nef" "jpg" "tif" "heic"})
+(def photo-extension-set #{"dng" "png" "cr2" "cr3" "nef" "jpg" "jpeg" "tif" "heic"})
 
 (deftype PhotoArchiver []
   Archiver
@@ -415,7 +415,7 @@
   (archiver-name [archiver] "resized photos")
 
   (accept-source-file [archiver file]
-    (#{"dng" "png" "cr2" "cr3" "nef" "jpg" "tif" "heic"} (.toLowerCase (extension (.getName file)))))
+    (photo-extension-set (.toLowerCase (extension (.getName file)))))
 
   (target-file-name [archiver md5 source-file-name]
     (file-name (photo-date source-file-name)
