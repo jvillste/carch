@@ -2,30 +2,32 @@
   (:require [carch.core :as core])
   (:gen-class))
 
-(defn copy [paths-string]
+(defn copy
+  "Copies photos, videos and xmp files"
+  [paths-string]
   (core/start (read-string paths-string)
               [(core/->PhotoArchiver) (core/->VideoArchiver) (core/->XMPArchiver)]))
 
-(defn copy-xmps [paths-string]
+(defn copy-xmps
+  "Copies xmp files"
+  [paths-string]
   (core/start (read-string paths-string)
               [(core/->XMPArchiver)]))
 
 (defn copy-with-config-file [paths-file-name]
   (copy (slurp paths-file-name)))
 
-(defn resize [paths-string]
+(defn resize
+  "Resizes photos and videos"
+  [paths-string]
   (core/start (read-string paths-string)
-              [(core/->ResizingPhotoArchiver)]))
-
-(defn resize-videos [paths-string]
-  (core/start (read-string paths-string)
-              [(core/->ResizingVideoArchiver)]))
+              [(core/->ResizingPhotoArchiver)
+               (core/->ResizingVideoArchiver)]))
 
 (def commands [#'copy
                #'copy-with-config-file
                #'copy-xmps
-               #'resize
-               #'resize-videos])
+               #'resize])
 
 (defn find-command [command-name commands]
   (first (filter (fn [command]
@@ -48,6 +50,7 @@
                                     ": "
                                     (:arglists (meta command-var))
                                     "\n"
-                                    (:doc (meta command-var)))))
+                                    (:doc (meta command-var))
+                                    "\n")))
                         (interpose "------------------------\n")
                         (apply str)))))))
