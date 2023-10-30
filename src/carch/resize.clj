@@ -54,7 +54,7 @@
      1000000))
 
 (defn resize-video [source-path target-path]
-  (let [result (jx-java-shell/timeout-sh  (size-in-megabytes source-path)
+  (let [result (jx-java-shell/timeout-sh  (* 5 (size-in-megabytes source-path))
                                           "ffmpeg"
                                           "-i" source-path
                                           "-c:v" "libx265"
@@ -118,7 +118,7 @@
                   "/Users/jukka/Downloads/small.mp4"))
 
   (time (do (fs/delete "/Users/jukka/Downloads/small.mp4")
-            (resize-video "/Users/jukka/Pictures/uudet-lajittelemattomat-kuvat/DCIM/ZoomerangVideos/zoomerang_1674281404923.mp4"
+            (resize-video "/Users/jukka/Pictures/uudet-lajittelemattomat-kuvat/DCIM/ZoomerangVideos/zoomerang_1678008665573.mp4"
                           "/Users/jukka/Downloads/small.mp4")))
 
   (resize-video "/Volumes/Backup_3_2/kuva-arkisto/2017/2017-12-27/2017-12-27.17.40.03_5ff6fbc11fd2e8dbc43b4daf772ffc0c.MOV"
