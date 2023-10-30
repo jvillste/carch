@@ -132,4 +132,15 @@
   (println (get-date "/Users/jukka/Pictures/uudet-kuvat/2021/2021-08-21/2021-08-21.09.46.13_6bb96a2482e3bfb1a859c34f43eb4f69.mp4"))
 
   (with-out-str
-    (run-command "exiftool" "-S" "-CreateDate" "/Users/jukka/Pictures/uudet_kuvat/100ANDRO/MOV_0006.mp4")))
+    (run-command "exiftool" "-S" "-CreateDate" "/Users/jukka/Pictures/uudet_kuvat/100ANDRO/MOV_0006.mp4"))
+
+
+  (-> (shell/sh exiftool-path "-json" "/Users/jukka/google-drive/kadunvarsimainosten kuvat/IMG_3397.HEIC.jpg")
+      (:out)
+      (jsonista/read-value)
+      ;; (first)
+      ;; (get "SubSecDateTimeOriginal" #_"DateTimeOriginal")
+      )
+
+ 
+  )
