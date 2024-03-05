@@ -5,7 +5,8 @@
                  [metosin/jsonista "0.3.3"]
                  [clj-time "0.15.2"]
                  [babashka/fs "0.4.19"]
-                 [timeout-shell "1.0.0"]]
+                 [timeout-shell "1.0.0"]
+                 [dev.weavejester/medley "1.7.0"]]
   :javac-options ["-cp" "local-jars/metadata-extractor-2.3.1.jar"]
   :profiles {:uberjar {:aot :all}}
   :main carch.main)

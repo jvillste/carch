@@ -16,7 +16,8 @@
            [java.nio.file.attribute BasicFileAttributes]
            [java.nio.file Files Path Paths LinkOption]
            sun.misc.Signal
-           sun.misc.SignalHandler)
+           sun.misc.SignalHandler
+           javax.imageio.ImageIO)
   (:use clojure.test))
 
 
@@ -88,7 +89,9 @@
 (defn files-for-archiver [archiver directory-path]
   (filter #(accept-source-file archiver %)
           (sort-by #(.getAbsolutePath %)
-                   (common/files-in-directory directory-path))))
+                   (remove (fn [file]
+                             (.isHidden file))
+                           (common/files-in-directory directory-path)))))
 
 (defn extension [file-name]
   (.substring file-name (+ 1 (.lastIndexOf file-name "."))))
@@ -286,6 +289,16 @@
 
 (def photo-extension-set #{"dng" "png" "cr2" "cr3" "nef" "jpg" "jpeg" "tif" "heic"})
 
+(defn mime-type [file-path]
+  (string/trim (:out (shell/sh "file" "-b" "--mime-type" file-path))))
+
+(defn accept-photo-source-file [file]
+  (let [extension (.toLowerCase (extension (.getName file)))]
+    (and (contains? photo-extension-set
+                    extension)
+         (or (not (contains? #{"jpg" "jpeg"} extension))
+             (= "image/jpeg" (mime-type (.getPath file)))))))
+
 (deftype PhotoArchiver []
   Archiver
 
@@ -293,9 +306,8 @@
 
   (archiver-name [archiver] "photos")
 
-  (accept-source-file [archiver file]
-    (contains? photo-extension-set
-               (.toLowerCase (extension (.getName file)))))
+  (accept-source-file [_archiver file]
+    (accept-photo-source-file file))
 
   (target-file-name [archiver md5 source-file-name]
     (file-name (photo-date source-file-name)
@@ -326,7 +338,16 @@
                        (extension))))
 
 (comment
-  (photo-file-name-for-xmp-file-name "/Users/jukka/Downloads/test-photos/2021-10-14.08.27.56.32_39ce985ea7e6848015fab2efa8509e13.xmp")
+  (accept-photo-source-file (io/file "/Users/jukka/Downloads/WhatsApp Image 2024-01-08 at 18.55.06.jpeg"))
+  (date-from-file-name "/Volumes/LEENAN LEVY/pienet-kuvat/2015/2015-10-14/2015-10-14.10.21.01_9c41bd689d9c3cdc6341e51aae64b900.mp4-small.mp4")
+  (date-from-file-name "/Users/jukka/Pictures/uudet-kuvat/2022/2022-05-25/2022-05-25.14.53.12.55_126b3b7bcd2c4477abfc452d7a80bf7b.jpeg")
+
+  (let [file-name "/Users/jukka/Downloads/2023-03-26.07.52.35_b45597fbf3466314b2807d170e44ff72.mp4-small copy.mp4"]
+    (exiftool/write-date-time file-name
+                              (date-from-file-name file-name)))
+
+
+  ;; => nil
   ) ;; TODO: remove-me
 
 
@@ -358,15 +379,19 @@
   (compare-file-sizes? [archiver] true))
 
 (defn date-from-file-name [file-name]
-  (let [[year month day hour minute second] (rest (re-matches #"(\d\d\d\d)-(\d\d)-(\d\d)\.(\d\d)\.(\d\d)\.(\d\d).*"
-                                                              file-name))]
+  (let [[year month day hour minute second subsecond] (rest (or (re-matches #".*(\d\d\d\d)-(\d\d)-(\d\d)\.(\d\d)\.(\d\d)\.(\d\d).(\d\d).*"
+                                                                            file-name)
+                                                                (re-matches #".*(\d\d\d\d)-(\d\d)-(\d\d)\.(\d\d)\.(\d\d)\.(\d\d).*"
+                                                                            file-name)))]
     (when (and year month day hour minute second)
       {:year (Integer/parseInt year)
        :month (Integer/parseInt month)
        :day (Integer/parseInt day)
        :hour (Integer/parseInt hour)
        :minute (Integer/parseInt minute)
-       :second (Integer/parseInt second)})))
+       :second (Integer/parseInt second)
+       :subsecond (when subsecond
+                    (Integer/parseInt subsecond))})))
 
 (deftest test-date-from-file-name
   (is (= {:year 2020, :month 8, :day 25, :hour 14, :minute 51, :second 7}
@@ -443,9 +468,7 @@
                      #_"/Users/jukka/Pictures/uudet-kuvat/r6 4/7Y7A2551.MP4"
                      "/Users/jukka/Pictures/uudet-kuvat/jarmon pokkari/DCIM/822_0507/MVI_3691.MOV")
 
-  (get-video-date #_"/Users/jukka/Downloads/IMG_0095.MOV"
-                  #_"/Users/jukka/Pictures/uudet-kuvat/r6 4/7Y7A2551.MP4"
-                  "/Users/jukka/Pictures/uudet-kuvat/jarmon pokkari/DCIM/822_0507/MVI_3691.MOV"))
+  (get-video-date "/Volumes/LEENAN LEVY/kuvat/2017/2017-02-19/2017-02-19.16.23.17.66_b687e8ce42ec3ac390023dc519b79462.MP4"))
 
 (deftype VideoArchiver []
   Archiver
@@ -741,8 +764,13 @@
           :archive-paths ["/Users/jukka/Pictures/pienet-kuvat"]}
          [(->ResizingPhotoArchiver)])
 
+  (start {:source-paths ["/Users/jukka/Downloads"]
+          :archive-paths ["/Users/jukka/Downloads"]}
+         [(->PhotoArchiver)])
+
   (start {:source-paths [#_"/Volumes/Backup_3_1/kuva-arkisto/2021/2021-12-25"
-                         "/Volumes/Backup_3_1/kuva-arkisto/2006"
+                         ;; "/Volumes/Backup_3_1/kuva-arkisto/2006"
+                         "/Volumes/LEENAN LEVY/kuvat/2024/2024-01-01"
                          #_"/Users/jukka/Pictures/uudet-kuvat/2022/2022-03-29"]
           :archive-paths ["/Users/jukka/Downloads/small-videos"]}
          [(->ResizingVideoArchiver)])
