@@ -32,8 +32,12 @@
   (target-file-name [archiver md5 temp-file])
   (target-path [archiver temp-file-name])
   (copy-file [archiver source-file-name target-file-names])
-  (compare-file-sizes? [archiver]))
+  (compare-file-sizes? [archiver])
+  (compare-md5? [archiver]))
 
+(extend-protocol Archiver
+  java.lang.Object
+  (compare-md5? [_archiver] false))
 
 (defn- optimal-thread-count []
   (+ (.. Runtime getRuntime availableProcessors)
@@ -216,19 +220,23 @@
     (resize/resize-file source-file-name target-file-name)))
 
 (defn archive [archiver source-file-name archive-paths]
-  (let [md5 (md5 source-file-name)
+  (let [source-md5 (md5 source-file-name)
         source-length (file-length source-file-name)
         target-file-names (for [archive-path archive-paths]
                             (append-paths archive-path
                                           (target-path archiver source-file-name)
-                                          (target-file-name archiver md5 source-file-name)))
-        target-exists #(and (.exists (File. %))
-                            (or (not (compare-file-sizes? archiver))
-                                (= (file-length %)
-                                   source-length)))]
+                                          (target-file-name archiver source-md5 source-file-name)))
+        target-exists (fn [target-file-name]
+                        (and (.exists (File. target-file-name))
+                             (or (not (compare-file-sizes? archiver))
+                                 (= (file-length target-file-name)
+                                    source-length))
+                             (or (not (compare-md5? archiver))
+                                 (= source-md5
+                                    (md5 target-file-name)))))]
 
     (write-log "copying to" (append-paths (target-path archiver source-file-name)
-                                          (target-file-name archiver md5 source-file-name)))
+                                          (target-file-name archiver source-md5 source-file-name)))
     (doseq [target-file-name (filter target-exists
                                      target-file-names)]
       (write-log source-file-name "already exists in" target-file-name))
@@ -322,7 +330,9 @@
   (copy-file [archiver source-file-name target-file-names]
     (copy-file-with-streams source-file-name target-file-names))
 
-  (compare-file-sizes? [archiver] true))
+  (compare-file-sizes? [archiver] true)
+
+  (compare-md5? [_archiver] false))
 
 (defn photo-file-name-for-xmp-file-name [xmp-file-name]
   (string/replace xmp-file-name
@@ -376,7 +386,45 @@
   (copy-file [archiver source-file-name target-file-names]
     (copy-file-with-streams source-file-name target-file-names))
 
-  (compare-file-sizes? [archiver] true))
+  (compare-file-sizes? [archiver] true)
+
+  (compare-md5? [_archiver] true))
+
+
+(defn photo-file-name-for-pp3-file-name [xmp-file-name]
+  (string/replace xmp-file-name
+                  ".pp3"
+                  ""))
+
+(deftype PP3Archiver []
+  Archiver
+
+  (thread-count [_archiver] 1)
+
+  (archiver-name [_archiver] "pp3 files")
+
+  (accept-source-file [_archiver file]
+    (= "pp3" (.toLowerCase (extension (.getName file)))))
+
+  (target-file-name [_archiver _pp3-md5 source-file-name]
+    (let [photo-file-name (photo-file-name-for-pp3-file-name source-file-name)]
+      (str (file-name (photo-date photo-file-name)
+                      (md5 photo-file-name)
+                      (extension photo-file-name))
+           ".pp3")))
+
+  (target-path [_archiver source-file-name]
+    (-> source-file-name
+        photo-file-name-for-pp3-file-name
+        photo-date
+        target-path-by-date))
+
+  (copy-file [_archiver source-file-name target-file-names]
+    (copy-file-with-streams source-file-name target-file-names))
+
+  (compare-file-sizes? [_archiver] true)
+
+  (compare-md5? [_archiver] true))
 
 (defn date-from-file-name [file-name]
   (let [[year month day hour minute second subsecond] (rest (or (re-matches #".*(\d\d\d\d)-(\d\d)-(\d\d)\.(\d\d)\.(\d\d)\.(\d\d).(\d\d).*"
@@ -429,7 +477,9 @@
   (copy-file [archiver source-file-name target-file-names]
     (copy-file-with-streams source-file-name target-file-names))
 
-  (compare-file-sizes? [archiver] true))
+  (compare-file-sizes? [archiver] true)
+
+  (compare-md5? [_archiver] false))
 
 
 (deftype ResizingPhotoArchiver []
@@ -455,7 +505,9 @@
   (copy-file [archiver source-file-name target-file-names]
     (resize-file source-file-name target-file-names))
 
-  (compare-file-sizes? [archiver] false))
+  (compare-file-sizes? [archiver] false)
+
+  (compare-md5? [_archiver] false))
 
 ;; VIDEOS
 
@@ -491,7 +543,9 @@
   (copy-file [archiver source-file-name target-file-names]
     (copy-file-with-streams source-file-name target-file-names))
 
-  (compare-file-sizes? [archiver] true))
+  (compare-file-sizes? [archiver] true)
+
+  (compare-md5? [_archiver] false))
 
 (deftype ResizingVideoArchiver []
   Archiver
@@ -517,7 +571,9 @@
     (doseq [target-file-name target-file-names]
       (resize/resize-video source-file-name target-file-name)))
 
-  (compare-file-sizes? [archiver] false))
+  (compare-file-sizes? [archiver] false)
+
+  (compare-md5? [_archiver] false))
 
 ;; UI
 
@@ -763,6 +819,10 @@
 
           :archive-paths ["/Users/jukka/Pictures/pienet-kuvat"]}
          [(->ResizingPhotoArchiver)])
+
+  (start {:source-paths ["/Users/jukka/Pictures/uudet-kuvat/2024/2024-12-27"]
+          :archive-paths ["/Users/jukka/Downloads/test-target"]}
+         [#_(->PhotoArchiver) (->PP3Archiver)])
 
   (start {:source-paths ["/Users/jukka/Downloads"]
           :archive-paths ["/Users/jukka/Downloads"]}
