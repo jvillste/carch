@@ -6,7 +6,10 @@
   "Copies photos, videos and xmp files"
   [paths-string]
   (core/start (read-string paths-string)
-              [(core/->PhotoArchiver) (core/->VideoArchiver) (core/->XMPArchiver)]))
+              [(core/->PhotoArchiver)
+               (core/->VideoArchiver)
+               (core/->XMPArchiver)
+               (core/->PP3Archiver)]))
 
 (defn copy-xmps
   "Copies xmp files"
