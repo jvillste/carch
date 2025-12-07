@@ -1,10 +1,18 @@
 (ns carch.exiftool
-  (:require [clojure.java.shell :as shell]
-            [clojure.string :as string]
-            [jsonista.core :as jsonista]
-            [medley.core :as medley]
-            [babashka.fs :as fs])
+  (:require
+   [babashka.fs :as fs]
+   [clojure.data :as data]
+   [clojure.java.shell :as shell]
+   [clojure.string :as string]
+   [jsonista.core :as jsonista]
+   [medley.core :as medley])
+  (:import [java.time LocalDateTime
+            ZonedDateTime
+            ZoneId]
+           [java.time.format DateTimeFormatter])
   (:use clojure.test))
+
+
 
 (defn run-command [& args]
   (let [result (apply shell/sh args)]
@@ -58,7 +66,7 @@
 (defn all-tags [file-name]
   (-> (shell/sh exiftool-path "-json" #_"-groupNames" file-name)
       (:out)
-;;      (println)
+      ;;      (println)
       (jsonista/read-value)
       (first)
       ))
@@ -110,18 +118,43 @@
   (is (= nil
          (subsecond-date-time-orignal-to-map nil))))
 
+(defn parse-exif-timestamp [input]
+  (let [helsinki-timestamp (.withZoneSameInstant (or (try
+                                                       (ZonedDateTime/parse input
+                                                                            (DateTimeFormatter/ofPattern "yyyy:MM:dd HH:mm:ssXXX"))
+                                                       (catch Throwable _throwable
+                                                         nil))
+
+                                                     (.atZone (LocalDateTime/parse input
+                                                                                   (DateTimeFormatter/ofPattern "yyyy:MM:dd HH:mm:ss"))
+                                                              (ZoneId/of "UTC")))
+                                                 (ZoneId/of "Europe/Helsinki"))]
+    {:year (.getYear helsinki-timestamp)
+     :month (.getMonthValue helsinki-timestamp)
+     :day (.getDayOfMonth helsinki-timestamp)
+     :hour (.getHour helsinki-timestamp)
+     :minute (.getMinute helsinki-timestamp)
+     :second (.getSecond helsinki-timestamp)}))
+
 (defn get-date [file-name]
   (or (subsecond-date-time-orignal-to-map (subsecond-date-time-original file-name))
-      (let [tags (all-tags file-name)]
-        (parse-date (or (get tags "MediaCreateDate")
-                        (get tags "TrackCreateDate")
-                        (get tags "CreateDate")
-                        (get tags "DateTimeOriginal"))))
-      (parse-date (date-time-original file-name))
-      (parse-date (media-create-date file-name))))
+      (parse-exif-timestamp  (let [tags (all-tags file-name)]
+                               (or (get tags "MediaCreateDate")
+                                   (get tags "TrackCreateDate")
+                                   (get tags "CreateDate")
+                                   (get tags "DateTimeOriginal")
+                                   (date-time-original file-name)
+                                   (media-create-date file-name))))))
 
 (deftest test-get-date
-  (is (= {:year 2020, :month 7, :day 5, :hour 14, :minute 53, :second 23}
+
+  (is (= {:year 2025, :month 9, :day 23, :hour 20, :minute 23, :second 59}
+         (get-date "dev-resources/iphone 7 live photo movie.MOV")))
+
+  (is (= {:year 2025, :month 9, :day 23, :hour 20, :minute 23, :second 58, :subsecond 89}
+         (get-date "dev-resources/iphone 7 live photo.JPG")))
+
+  (is (= {:year 2020, :month 7, :day 5, :hour 17, :minute 53, :second 23}
          (get-date "dev-resources/Canon PowerShot SX260 HS.JPG")))
 
   (is (= {:year 2021, :month 7, :day 3, :hour 9, :minute 38, :second 42, :subsecond 83}
@@ -174,7 +207,7 @@
 
   (fs/copy "/Users/jukka/Downloads/2015-10-14.10.21.01_9c41bd689d9c3cdc6341e51aae64b900.mp4-small copy.mp4"
            "/Users/jukka/Downloads/2015-10-14.10.21.01_9c41bd689d9c3cdc6341e51aae64b900.mp4-small-target.mp4")
-  
+
   (get-date "/Users/jukka/Pictures/uudet-kuvat/2021/2021-08-21/2021-08-21.09.46.13_6bb96a2482e3bfb1a859c34f43eb4f69.mp4")
   (subsecond-date-time-original #_"/Users/jukka/google-drive/src/carch/dev-resources/Canon PowerShot SX260 HS.JPG"
                                 #_"/Users/jukka/google-drive/src/carch/dev-resources/r6.CR3"
@@ -219,5 +252,19 @@
       ;; (get "SubSecDateTimeOriginal" #_"DateTimeOriginal")
       )
 
+  (data/diff (all-tags "/Volumes/Backup_3_1/kuva-arkisto/2025/2025-09-29/2025-09-29.08.46.03.82_a526b45a5faecbd7007e016accb7c2b1.JPG")
+             (all-tags "/Volumes/Backup_3_1/kuva-arkisto/2025/2025-09-29/2025-09-29.18.18.22.90_4cd8a234eb63e52a2c06d161383b1cf5.HEIC"))
 
+  (all-tags "/Volumes/Backup_3_1/kuva-arkisto/2025/2025-09-29/2025-09-29.08.19.32.19_a4b95e426c90731d5f52cf0eb2895087.CR3")
+
+  (= "iPhone 7 Plus"
+     (get (all-tags "/Users/jukka/Pictures/pienet-kuvat/2025/2025-11-11/2025-11-11.14.31.09.22_89163cd9817a5d1ed8e5c646af5c1a2a.HEIC-small.jpg")
+          "Model"))
+
+  (all-tags "/Users/jukka/Pictures/pienet-kuvat/2025/2025-10-10/2025-10-10.13.24.57.87_3f7353232ae449007c924851afc7ea4b.CR3-small.jpg")
+  (all-tags "/Users/jukka/Pictures/pienet-kuvat/2025/2025-11-07/2025-11-07.10.47.12_b483da9e60a831309e2319d2d4ecd317.MOV-small.mp4")
   )
+
+(defn model [file-name]
+  (get (all-tags file-name)
+       "Model"))
