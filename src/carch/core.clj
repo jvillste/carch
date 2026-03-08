@@ -509,10 +509,40 @@
 
   (compare-md5? [_archiver] false))
 
+(deftype ResizingPhotoArchiverForBlueray []
+  Archiver
+
+  (thread-count [archiver] (optimal-thread-count))
+
+  (archiver-name [archiver] "resized photos for blueray")
+
+  (accept-source-file [archiver file]
+    (photo-extension-set (.toLowerCase (extension (.getName file)))))
+
+  (target-file-name [archiver md5 source-file-name]
+    (file-name (photo-date source-file-name)
+               md5
+               (str (extension source-file-name) "-tiny.jpg")))
+
+  (target-path [archiver source-file-name]
+    (-> source-file-name
+        photo-date
+        target-path-by-date))
+
+  (copy-file [_archiver source-file-name target-file-names]
+    (doseq [target-file-name target-file-names]
+      (resize/resize-photo-for-blue-ray source-file-name target-file-name)))
+
+  (compare-file-sizes? [archiver] false)
+
+  (compare-md5? [_archiver] false))
+
 ;; VIDEOS
 
 (defn get-video-date [file-name]
-  (or (exiftool/get-date file-name)
+  (or (try (exiftool/get-date file-name)
+           (catch Throwable _throwable))
+      (date-from-file-name file-name)
       (file-creation-date file-name)))
 
 (comment
@@ -547,6 +577,8 @@
 
   (compare-md5? [_archiver] false))
 
+(def video-file-extension-set #{"mov" "mp4" "avi" "wmv" "mpg"})
+
 (deftype ResizingVideoArchiver []
   Archiver
 
@@ -555,7 +587,7 @@
   (archiver-name [archiver] "resized videos")
 
   (accept-source-file [archiver file]
-    (#{"mov" "mp4" "avi" "wmv" "mpg"} (.toLowerCase (extension (.getName file)))))
+    (video-file-extension-set (.toLowerCase (extension (.getName file)))))
 
   (target-file-name [archiver md5 source-file-name]
     (file-name (get-video-date source-file-name)
@@ -570,6 +602,35 @@
   (copy-file [archiver source-file-name target-file-names]
     (doseq [target-file-name target-file-names]
       (resize/resize-video source-file-name target-file-name)))
+
+  (compare-file-sizes? [archiver] false)
+
+  (compare-md5? [_archiver] false))
+
+
+(deftype ResizingVideoArchiverForBlueray []
+  Archiver
+
+  (thread-count [archiver] 1)
+
+  (archiver-name [archiver] "resized videos")
+
+  (accept-source-file [archiver file]
+    (video-file-extension-set (.toLowerCase (extension (.getName file)))))
+
+  (target-file-name [archiver md5 source-file-name]
+    (file-name (get-video-date source-file-name)
+               md5
+               (str (extension source-file-name) "-tiny.mp4")))
+
+  (target-path [archiver source-file-name]
+    (-> source-file-name
+        get-video-date
+        target-path-by-date))
+
+  (copy-file [archiver source-file-name target-file-names]
+    (doseq [target-file-name target-file-names]
+      (resize/resize-video-for-blue-ray source-file-name target-file-name)))
 
   (compare-file-sizes? [archiver] false)
 
@@ -820,9 +881,10 @@
           :archive-paths ["/Users/jukka/Pictures/pienet-kuvat"]}
          [(->ResizingPhotoArchiver)])
 
-  (start {:source-paths ["/Users/jukka/Pictures/uudet-kuvat/2024/2024-12-27"]
-          :archive-paths ["/Users/jukka/Downloads/test-target"]}
-         [#_(->PhotoArchiver) (->PP3Archiver)])
+  (start {:source-paths ["/Users/jukka/Pictures/pienet-kuvat/2017/2017-01-27"]
+          :archive-paths ["/Users/jukka/Downloads/resize-target"]}
+         [(->ResizingPhotoArchiverForBlueray)
+          (->ResizingVideoArchiverForBlueray)])
 
   (start {:source-paths ["/Users/jukka/Downloads"]
           :archive-paths ["/Users/jukka/Downloads"]}

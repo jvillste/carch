@@ -27,6 +27,13 @@
               [(core/->ResizingPhotoArchiver)
                (core/->ResizingVideoArchiver)]))
 
+(defn resize-for-blue-ray
+  "Resizes photos and videos for blue ray archive"
+  [paths-string]
+  (core/start (read-string paths-string)
+              [(core/->ResizingPhotoArchiverForBlueray)
+               (core/->ResizingVideoArchiverForBlueray)]))
+
 (defn resize-photos
   "Resizes only photos"
   [paths-string]
@@ -44,7 +51,8 @@
                #'copy-xmps
                #'resize
                #'resize-photos
-               #'resize-videos])
+               #'resize-videos
+               #'resize-for-blue-ray])
 
 (defn find-command [command-name commands]
   (first (filter (fn [command]
