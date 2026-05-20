@@ -284,10 +284,10 @@
   (let [date (try (or (exiftool/get-date photo-file-name)
                       (date-to-map (photo-exif-date photo-file-name)))
                   (catch Exception e
-                    (println "WARNING: could not get exif date from " photo-file-name)
                     nil))]
     (when (nil? date)
-      (println "WARNING: could not get exif date from " photo-file-name))
+      ;; (println "WARNING: could not get exif date from " photo-file-name)
+      )
 
     date))
 
@@ -893,9 +893,12 @@
          [(->ResizingPhotoArchiver)
           (->ResizingVideoArchiver)])
 
-  (start {:source-paths ["/Users/jukka/Downloads"]
-          :archive-paths ["/Users/jukka/Downloads"]}
-         [(->PhotoArchiver)])
+  (start {:source-paths ["/Users/jukka/Downloads/carch-test"]
+          :archive-paths ["/Users/jukka/Downloads/carch-test-target"]}
+         [(->PhotoArchiver)
+          (->VideoArchiver)
+          (->XMPArchiver)
+          (->PP3Archiver)])
 
   (start {:source-paths [#_"/Volumes/Backup_3_1/kuva-arkisto/2021/2021-12-25"
                          ;; "/Volumes/Backup_3_1/kuva-arkisto/2006"
