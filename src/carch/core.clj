@@ -886,6 +886,13 @@
          [(->ResizingPhotoArchiverForBlueray)
           (->ResizingVideoArchiverForBlueray)])
 
+
+
+  (start {:source-paths ["/Users/jukka/Pictures/pienet-kuvat/2017/2017-01-27"]
+          :archive-paths ["/Users/jukka/Downloads/resize-target"]}
+         [(->ResizingPhotoArchiver)
+          (->ResizingVideoArchiver)])
+
   (start {:source-paths ["/Users/jukka/Downloads"]
           :archive-paths ["/Users/jukka/Downloads"]}
          [(->PhotoArchiver)])

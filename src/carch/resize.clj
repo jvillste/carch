@@ -52,7 +52,7 @@
                     {:name "lumo" :file-name "2025-03-27.07.20.37.07_9729de83c702e742de215d6a1632c2e2.JPG-small.jpg"}
                     #_{:name "puut" :file-name "2026-02-05.15.29.20.03_792fa81e1dfa8d0b666d7ad74f7c1e4b.CR3-small.jpg"}
                     :maximum-size 500
-                    :format-options "100"
+                    :format-options "70"
                     :format #_"heic" #_"jp2" "jpeg"}]
     (resize-file (str "/Users/jukka/Downloads/source-video/" (-> parameters :source :file-name))
                  (str "/Users/jukka/Downloads/target-video/"
